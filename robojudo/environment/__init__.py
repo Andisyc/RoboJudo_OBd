@@ -6,9 +6,6 @@ from .env_cfgs import EnvCfg
 
 env_registry = Registry(package="robojudo.environment", base_class=Environment)
 
-from .unitree_env import UnitreeEnv
-from .unitree_cpp_env import UnitreeCppEnv
-
 __all__ = [
     "Environment",
     "EnvCfg",

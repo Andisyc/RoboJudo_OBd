@@ -32,7 +32,10 @@ class UniLabPolicy(Policy):
             )
 
         self.gait_frequency = float(cfg_policy.gait_frequency)
-        self.gait_phase = np.zeros(2, dtype=np.float32)
+        self.initial_gait_phase = np.asarray(cfg_policy.initial_gait_phase, dtype=np.float32)
+        if self.initial_gait_phase.shape != (2,):
+            raise ValueError("initial_gait_phase must contain the left and right foot phases")
+        self.gait_phase = self.initial_gait_phase.copy()
         self.freeze_phase_during_dry_run = bool(
             getattr(cfg_policy, "freeze_phase_during_dry_run", True)
         )
@@ -99,7 +102,7 @@ class UniLabPolicy(Policy):
 
     def reset(self):
         self.last_action = np.zeros(self.num_actions, dtype=np.float32)
-        self.gait_phase = np.zeros(2, dtype=np.float32)
+        self.gait_phase = self.initial_gait_phase.copy()
         self._last_obs = None
 
     def post_step_callback(self, commands: list[str] | None = None):

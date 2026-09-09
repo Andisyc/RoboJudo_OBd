@@ -213,6 +213,17 @@ Begin your journey with unitree g1 sim2sim.
 python scripts/run_pipeline.py
 ```
 
+To run the migrated UniLab G1 stand-height/walk DAgger student:
+
+```bash
+python scripts/run_pipeline.py -c g1_unilab_distill
+```
+
+The keyboard controls are `W/S` for forward/backward, `A/D` for lateral
+movement, `Q/E` for yaw, and `R/F` for raising/lowering the target height in
+0.01 m steps. The target height is clamped to the policy's trained range of
+0.650–0.754 m.
+
 You can control the motivation using any Xbox controller:
 
 - `left axes` move forward/backward/lfet/right

@@ -2,9 +2,12 @@ import time
 from queue import Empty, Queue
 from threading import Thread
 
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Joy
+try:
+    import rclpy
+    from rclpy.node import Node
+    from sensor_msgs.msg import Joy
+except ImportError:  # ROS2 is optional for local joystick simulation.
+    rclpy = None  # type: ignore[assignment]
 
 from robojudo.controller import Controller, ctrl_registry
 from robojudo.controller.ctrl_cfgs import JoystickCtrlCfg
@@ -67,6 +70,9 @@ class JoystickCtrl(Controller):
     def init_ros(self):
         """Initializes the ROS2 subscriber in a background thread."""
         self._last_joy_buttons = None
+        if rclpy is None:
+            print("[JoystickCtrl] ROS2 unavailable; using local joystick mode.")
+            return
         try:
             rclpy.init()
         except RuntimeError:

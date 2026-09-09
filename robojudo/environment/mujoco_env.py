@@ -25,10 +25,16 @@ class MujocoEnv(Environment):
         self.sim_dt = cfg_env.sim_dt
         self.sim_decimation = cfg_env.sim_decimation
         self.control_dt = self.sim_dt * self.sim_decimation
+        self.reset_keyframe = cfg_env.reset_keyframe
+        self.actuator_control_mode = cfg_env.actuator_control_mode
 
         self.model = mujoco.MjModel.from_xml_path(cfg_env.xml)  # pyright: ignore[reportAttributeAccessIssue]
         self.model.opt.timestep = self.sim_dt
         self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
+        self._policy_gyro_sensor = self._resolve_sensor(cfg_env.policy_gyro_sensor)
+        self._policy_upvector_sensor = self._resolve_sensor(cfg_env.policy_upvector_sensor)
+        self._policy_gyro = None
+        self._policy_gravity = None
         # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
         mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -54,6 +60,20 @@ class MujocoEnv(Environment):
 
         self.update()  # get initial state
 
+    def _resolve_sensor(self, name):
+        if name is None:
+            return None
+        sensor_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, name)
+        if sensor_id < 0:
+            raise ValueError(f"MuJoCo sensor not found: {name}")
+        return int(self.model.sensor_adr[sensor_id]), int(self.model.sensor_dim[sensor_id])
+
+    def _read_sensor(self, descriptor):
+        if descriptor is None:
+            return None
+        address, dimension = descriptor
+        return np.asarray(self.data.sensordata[address : address + dimension], dtype=np.float32)
+
     def reborn(self, init_qpos=None):
         if init_qpos is not None:
             self.data.qpos[0:7] = init_qpos
@@ -64,6 +84,9 @@ class MujocoEnv(Environment):
         mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
     def reset(self):
+        if self.reset_keyframe is not None:
+            mujoco.mj_resetDataKeyframe(self.model, self.data, self.reset_keyframe)
+            mujoco.mj_forward(self.model, self.data)
         if self.born_place_align:  # TODO: merge
             self.born_place_align = False  # disable during reset
             self.update()
@@ -112,6 +135,9 @@ class MujocoEnv(Environment):
 
         self._base_pos = base_pos.copy()
         self._base_lin_vel = lin_vel.copy()
+        self._policy_gyro = self._read_sensor(self._policy_gyro_sensor)
+        upvector = self._read_sensor(self._policy_upvector_sensor)
+        self._policy_gravity = None if upvector is None else -upvector
 
         if self.update_with_fk:
             fk_info = self.fk()
@@ -119,6 +145,12 @@ class MujocoEnv(Environment):
             self._torso_ang_vel = fk_info[self._torso_name]["ang_vel"]
             self._torso_quat = fk_info[self._torso_name]["quat"]
             self._torso_pos = fk_info[self._torso_name]["pos"]
+
+    def get_data(self):
+        env_data = super().get_data()
+        env_data["policy_gyro"] = self._policy_gyro
+        env_data["policy_gravity"] = self._policy_gravity
+        return env_data
 
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"
@@ -131,10 +163,12 @@ class MujocoEnv(Environment):
             self.viewer.render()
 
         for _ in range(self.sim_decimation):
-            torque = (pd_target - self.dof_pos) * self.stiffness - self.dof_vel * self.damping
-            torque = np.clip(torque, -self.torque_limits, self.torque_limits)
-
-            self.data.ctrl = torque
+            if self.actuator_control_mode == "position":
+                self.data.ctrl = pd_target
+            else:
+                torque = (pd_target - self.dof_pos) * self.stiffness - self.dof_vel * self.damping
+                torque = np.clip(torque, -self.torque_limits, self.torque_limits)
+                self.data.ctrl = torque
 
             mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
             self.update(simple=True)
