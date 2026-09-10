@@ -9,9 +9,26 @@ from robojudo.environment import Environment, env_registry
 from robojudo.environment.env_cfgs import UnitreeEnvCfg
 from robojudo.tools.retarget import HandRetarget
 from robojudo.utils.rotation import TransformAlignment
-from robojudo.utils.util_func import quat_rotate_inverse_np
+from robojudo.utils.util_func import get_gravity_orientation, quat_rotate_inverse_np
 
 logger = logging.getLogger(__name__)
+
+
+def extract_unitree_policy_imu(imu_state) -> tuple[np.ndarray, np.ndarray]:
+    """Convert one raw Unitree IMU sample into the FADA policy convention."""
+    quat_wxyz = np.asarray(imu_state.quaternion, dtype=np.float32)
+    gyro = np.asarray(imu_state.gyroscope, dtype=np.float32)
+    if quat_wxyz.shape != (4,) or gyro.shape != (3,):
+        raise RuntimeError(
+            "Unitree policy IMU must provide quaternion[4] and gyroscope[3], "
+            f"got {quat_wxyz.shape} and {gyro.shape}"
+        )
+    if not bool(np.isfinite(quat_wxyz).all() and np.isfinite(gyro).all()):
+        raise RuntimeError("Unitree policy IMU contains non-finite values")
+
+    quat_xyzw = quat_wxyz[[1, 2, 3, 0]]
+    gravity = get_gravity_orientation(quat_xyzw).astype(np.float32)
+    return gyro, gravity
 
 
 @env_registry.register
@@ -32,6 +49,9 @@ class UnitreeCppEnv(Environment):
 
         self.robot = cfg_unitree.robot
         self._dof_idx = cfg_env.joint2motor_idx
+        self._policy_imu_source = cfg_env.policy_imu_source
+        self._policy_gyro: np.ndarray | None = None
+        self._policy_gravity: np.ndarray | None = None
         self._odometry_type = cfg_env.odometry_type
         if self._odometry_type == "ZED":
             assert self.cfg_env.zed_cfg is not None, "zed_cfg must be set if odometry_type is 'ZED'"
@@ -120,6 +140,17 @@ class UnitreeCppEnv(Environment):
             self._base_ang_vel = ang_vel
             self._base_rpy = rpy
 
+            if self._policy_imu_source == "torso":
+                torso_imu_state = getattr(self.robot_state, "torso_imu_state", None)
+                if torso_imu_state is None:
+                    raise RuntimeError(
+                        "Planner-IDM torso IMU requires unitree_cpp>=1.0.4 "
+                        "with RobotState.torso_imu_state"
+                    )
+                self._policy_gyro, self._policy_gravity = extract_unitree_policy_imu(
+                    torso_imu_state
+                )
+
         elif self.robot == "h1":
             raise NotImplementedError("H1 robot with unitree_cpp not supported yet.")
 
@@ -152,6 +183,13 @@ class UnitreeCppEnv(Environment):
         # controller
         if self.RemoteControllerHandler:
             self.RemoteControllerHandler(self.robot_state.wireless_remote)
+
+    def get_data(self):
+        env_data = super().get_data()
+        if self._policy_imu_source == "torso":
+            env_data["policy_gyro"] = self._policy_gyro
+            env_data["policy_gravity"] = self._policy_gravity
+        return env_data
 
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"

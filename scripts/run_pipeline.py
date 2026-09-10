@@ -54,6 +54,13 @@ def main():
     print(f"cfg.device: {cfg.device}")
     print("\n")
 
+    if cfg.preflight_only:
+        try:
+            pipeline.run_preflight()
+        finally:
+            pipeline.env.shutdown()
+        return
+
     # if mujoco = False
     if not cfg.env.is_sim:
         pipeline.prepare()

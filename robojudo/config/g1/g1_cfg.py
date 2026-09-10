@@ -47,10 +47,18 @@ from .policy.g1_unitree_policy_cfg import (
     G1UnitreePolicyCfg, 
     G1UnitreeWoGaitPolicyCfg,)  # noqa: F401
 from .policy.g1_unilab_policy_cfg import (  # noqa: F401
+    G1UniLabDoF,
     G1UniLabDistillPolicyCfg,
     G1UniLabPolicyCfg,
 )
 from .policy.g1_fada_policy_cfg import G1FADAPlannerIDMPolicyCfg  # noqa: F401
+
+
+UNILAB_G1_STAND_ROOT_QPOS: list[float] = [0.0, 0.0, 0.754, 1.0, 0.0, 0.0, 0.0]
+UNILAB_G1_STAND_QPOS: list[float] = [
+    *UNILAB_G1_STAND_ROOT_QPOS,
+    *G1UniLabDoF().default_pos,
+]
 
 
 # ======================== Basic Configs ======================== #
@@ -156,15 +164,31 @@ class g1_real_fada_planner_idm(g1_fada_planner_idm):  # Sim2Real
 
     env: G1RealEnvCfg = G1RealEnvCfg(
         env_type="UnitreeCppEnv",
+        policy_imu_source="torso",
         unitree=G1UnitreeCfg(
             net_if="eth0",
+            enable_torso_imu=True,
         ),
     )
-    ctrl: List[Union[UnitreeCtrlCfg, JoystickCtrlCfg]] = [
-        UnitreeCtrlCfg(),
-        JoystickCtrlCfg(),
-    ]
+    ctrl: List[KeyboardCtrlCfg] = [KeyboardCtrlCfg()]
     do_safety_check: bool = True
+
+
+@cfg_registry.register
+class g1_real_fada_planner_idm_preflight(g1_real_fada_planner_idm):
+    """Read-only FADA Planner-IDM connectivity and inference preflight."""
+
+    env: G1RealEnvCfg = G1RealEnvCfg(
+        act=False,
+        env_type="UnitreeCppEnv",
+        policy_imu_source="torso",
+        unitree=G1UnitreeCfg(
+            net_if="eth0",
+            enable_torso_imu=True,
+        ),
+    )
+    preflight_only: bool = True
+    preflight_steps: int = 50
 
 
 @cfg_registry.register

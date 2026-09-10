@@ -61,6 +61,20 @@ class MujocoEnv(Environment):
 
         self.update()  # get initial state
 
+    def _apply_init_qpos(self):
+        init_qpos = self.cfg_env.init_qpos
+        if init_qpos is None:
+            return
+        init_qpos = np.asarray(init_qpos, dtype=np.float64)
+        if init_qpos.shape != self.data.qpos.shape:
+            raise ValueError(
+                f"init_qpos shape {init_qpos.shape} != mujoco qpos shape {self.data.qpos.shape}"
+            )
+        self.data.qpos[:] = init_qpos
+        self.data.qvel[:] = 0.0
+        self.data.ctrl[:] = 0.0
+        mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+
     def _resolve_sensor(self, name):
         if name is None:
             return None

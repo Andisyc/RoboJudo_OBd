@@ -5,6 +5,7 @@ import unittest
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 import torch
@@ -12,6 +13,7 @@ import torch
 from robojudo.config.g1.g1_cfg import (
     g1_fada_planner_idm,
     g1_real_fada_planner_idm,
+    g1_real_fada_planner_idm_preflight,
     g1_unilab,
     g1_unilab_distill,
 )
@@ -23,6 +25,7 @@ from robojudo.policy.fada.checkpoint import (
 from robojudo.policy.fada.model import FADAArchitectureConfig, FADAPlannerIDMPolicy
 from robojudo.policy.fada.observation import project_fada_g1_state
 from robojudo.policy.fada_policy import FADAPlannerIDMPolicyAdapter
+from robojudo.pipeline.rl_pipeline import RlPipeline
 
 
 class _CheckpointCfg(G1FADAPlannerIDMPolicyCfg):
@@ -79,12 +82,70 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
 
         real_cfg = g1_real_fada_planner_idm()
         self.assertEqual(real_cfg.env.env_type, "UnitreeCppEnv")
+        self.assertEqual(real_cfg.env.policy_imu_source, "torso")
+        self.assertTrue(real_cfg.env.unitree.enable_torso_imu)
+        self.assertEqual(real_cfg.env.unitree.torso_imu_topic, "rt/secondary_imu")
         self.assertEqual(real_cfg.policy.policy_type, "FADAPlannerIDMPolicyAdapter")
         self.assertEqual(
             [type(ctrl).__name__ for ctrl in real_cfg.ctrl],
-            ["UnitreeCtrlCfg", "JoystickCtrlCfg"],
+            ["KeyboardCtrlCfg"],
         )
         self.assertTrue(real_cfg.do_safety_check)
+
+        preflight_cfg = g1_real_fada_planner_idm_preflight()
+        self.assertTrue(preflight_cfg.preflight_only)
+        self.assertEqual(preflight_cfg.preflight_steps, 50)
+        self.assertFalse(preflight_cfg.env.act)
+        self.assertFalse(preflight_cfg.env.is_sim)
+        self.assertEqual(preflight_cfg.policy.model_dump(), real_cfg.policy.model_dump())
+
+    def test_real_fada_uses_raw_unitree_torso_imu(self):
+        fake_unitree_cpp = SimpleNamespace(
+            RobotState=object,
+            SportState=object,
+            UnitreeController=object,
+        )
+        with mock.patch.dict("sys.modules", {"unitree_cpp": fake_unitree_cpp}):
+            from robojudo.environment.unitree_cpp_env import extract_unitree_policy_imu
+
+        gyro, gravity = extract_unitree_policy_imu(
+            SimpleNamespace(
+                quaternion=[1.0, 0.0, 0.0, 0.0],
+                gyroscope=[0.1, -0.2, 0.3],
+            )
+        )
+        np.testing.assert_allclose(gyro, [0.1, -0.2, 0.3])
+        np.testing.assert_allclose(gravity, [0.0, 0.0, -1.0])
+
+    def test_preflight_runs_dry_cycles_only(self):
+        pipeline = object.__new__(RlPipeline)
+        pipeline.cfg = SimpleNamespace(
+            env=SimpleNamespace(is_sim=False, act=False),
+            preflight_steps=3,
+        )
+        pipeline.env = SimpleNamespace(
+            num_dofs=29,
+            get_data=lambda: SimpleNamespace(
+                dof_pos=np.zeros(29, dtype=np.float32),
+                dof_vel=np.zeros(29, dtype=np.float32),
+                base_quat=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+                base_ang_vel=np.zeros(3, dtype=np.float32),
+            ),
+        )
+        pipeline.freq = 50
+        pipeline.dt = 0.0
+        dry_run_calls = []
+        pipeline.step = lambda dry_run=False: dry_run_calls.append(dry_run)
+
+        summary = pipeline.run_preflight()
+
+        self.assertEqual(dry_run_calls, [True, True, True])
+        self.assertFalse(summary["hardware_commands_enabled"])
+        self.assertEqual(summary["num_dofs"], 29)
+
+        pipeline.cfg.env.act = True
+        with self.assertRaisesRegex(RuntimeError, "env.act=False"):
+            pipeline.run_preflight(steps=1)
 
     def test_projection_uses_exact_non_leaking_indices(self):
         raw = np.arange(98, dtype=np.float32)[None, :]
