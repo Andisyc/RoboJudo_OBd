@@ -72,10 +72,12 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         self.assertEqual(cfg.policy.history_length, 30)
         self.assertEqual(cfg.policy.prediction_horizon, 6)
         self.assertEqual(cfg.policy.execution_action_scale, 1.0)
-        self.assertFalse(cfg.policy.gait_phase_enabled)
+        self.assertTrue(cfg.policy.gait_phase_enabled)
         self.assertFalse(cfg.policy.freeze_phase_during_dry_run)
         self.assertFalse(cfg.policy.preserve_state_during_dry_run)
-        np.testing.assert_allclose(cfg.policy.fixed_gait_phase, [0.0, 0.0])
+        np.testing.assert_allclose(cfg.policy.initial_gait_phase, [0.0, np.pi])
+        np.testing.assert_allclose(cfg.policy.fixed_gait_phase, [0.0, np.pi])
+        np.testing.assert_allclose(cfg.policy.keyboard_command_magnitudes, [0.6, 0.4, 0.8])
         self.assertEqual(cfg.policy.action_scale, 1.0)
         self.assertEqual(cfg.policy.action_beta, 1.0)
         self.assertIsNone(cfg.policy.action_clip)
@@ -176,25 +178,31 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         with self.assertRaises(ValueError):
             project_fada_g1_state(np.zeros((1, 97), dtype=np.float32))
 
-    def test_keyboard_command_toggles_at_fada_walk_speed(self):
+    def test_keyboard_commands_are_idempotent_and_report_changes(self):
         adapter = object.__new__(FADAPlannerIDMPolicyAdapter)
         adapter._held_motion_keys = set()
         adapter._keyboard_command = np.zeros(3, dtype=np.float32)
-        adapter.keyboard_command_magnitude = 0.4
-        pressed = {
-            "KeyboardCtrl": {
-                "keyboard_event": [{"type": "keyboard", "name": "w", "pressed": True}]
+        adapter.keyboard_command_magnitudes = np.asarray([0.6, 0.4, 0.8], dtype=np.float32)
+
+        def key_events(name):
+            return {
+                "KeyboardCtrl": {
+                    "keyboard_event": [
+                        {"type": "keyboard", "name": name, "pressed": True},
+                        {"type": "keyboard", "name": name, "pressed": False},
+                    ]
+                }
             }
-        }
-        released = {
-            "KeyboardCtrl": {
-                "keyboard_event": [{"type": "keyboard", "name": "w", "pressed": False}]
-            }
-        }
-        np.testing.assert_allclose(adapter._get_commands(pressed), [0.4, 0.0, 0.0])
-        np.testing.assert_allclose(adapter._get_commands({"KeyboardCtrl": {}}), [0.4, 0.0, 0.0])
-        np.testing.assert_allclose(adapter._get_commands(released), [0.4, 0.0, 0.0])
-        np.testing.assert_allclose(adapter._get_commands(pressed), [0.0, 0.0, 0.0])
+
+        with self.assertLogs("robojudo.policy.fada_policy", level="INFO") as captured:
+            np.testing.assert_allclose(adapter._get_commands(key_events("w")), [0.6, 0.0, 0.0])
+            np.testing.assert_allclose(adapter._get_commands(key_events("w")), [0.6, 0.0, 0.0])
+            np.testing.assert_allclose(adapter._get_commands(key_events("a")), [0.6, 0.4, 0.0])
+            np.testing.assert_allclose(adapter._get_commands(key_events("x")), [0.0, 0.0, 0.0])
+
+        self.assertEqual(len(captured.records), 3)
+        self.assertIn("key=w vx=0.600 vy=0.000 yaw=0.000", captured.output[0])
+        self.assertIn("key=x vx=0.000 vy=0.000 yaw=0.000", captured.output[-1])
 
     def test_checkpoint_identity_and_stateful_adapter(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -217,7 +225,7 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
             action = adapter.get_action(obs)
             self.assertEqual(obs.shape, (98,))
             self.assertEqual(action.shape, (29,))
-            np.testing.assert_allclose(obs[-2:], [0.0, 0.0])
+            np.testing.assert_allclose(obs[-2:], [0.0, np.pi])
             self.assertEqual(extras["fada_projected_obs_dim"], 66)
             self.assertEqual(
                 tuple(adapter.playback_controller._observation_history.shape), (1, 30, 66)
@@ -233,7 +241,11 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 adapter.get_action(obs)
             adapter.post_step_callback([])
-            np.testing.assert_allclose(adapter.gait_phase, [0.0, 0.0])
+            phase_delta = 2.0 * np.pi * adapter.gait_frequency * adapter.dt
+            np.testing.assert_allclose(
+                adapter.gait_phase,
+                np.asarray([phase_delta, np.pi + phase_delta]) % (2.0 * np.pi),
+            )
             adapter.reset()
             self.assertIsNone(adapter.playback_controller._observation_history)
 

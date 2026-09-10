@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,8 @@ from .fada.observation import (
 from .fada.playback import FADAPlaybackController
 from .unilab_policy import UniLabPolicy
 
+logger = logging.getLogger(__name__)
+
 
 @policy_registry.register
 class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
@@ -33,9 +36,17 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         self.execution_action_scale = float(cfg_policy.execution_action_scale)
         if self.execution_action_scale <= 0.0:
             raise ValueError("FADA execution_action_scale must be positive")
-        self.keyboard_command_magnitude = float(cfg_policy.keyboard_command_magnitude)
-        if self.keyboard_command_magnitude <= 0.0:
-            raise ValueError("FADA keyboard_command_magnitude must be positive")
+        self.keyboard_command_magnitudes = np.asarray(
+            cfg_policy.keyboard_command_magnitudes, dtype=np.float32
+        )
+        if (
+            self.keyboard_command_magnitudes.shape != (3,)
+            or not bool(np.isfinite(self.keyboard_command_magnitudes).all())
+            or not bool((self.keyboard_command_magnitudes > 0.0).all())
+        ):
+            raise ValueError(
+                "FADA keyboard_command_magnitudes must contain three positive values"
+            )
         self._held_motion_keys: set[str] = set()
         self._keyboard_command = np.zeros(3, dtype=np.float32)
         self.playback_controller = FADAPlaybackController(
@@ -172,15 +183,15 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         """Return persistent, in-distribution physical velocity commands.
 
         RoboJuDo keyboard input is delivered as press/release events.  A key
-        press toggles its axis between the FADA v022 nominal walking speed and
-        zero; release events only clear debounce state.  This makes a tap
-        start/stop walking while ignoring operating-system key-repeat events.
+        press sets its axis to the corresponding trained command magnitude;
+        release events do not stop motion because an SSH terminal cannot track
+        key holds.  The x key clears all three command axes.
         """
         keyboard_data = ctrl_data.get("KeyboardCtrl")
         if keyboard_data is None:
             return super()._get_commands(ctrl_data)
 
-        key_axes = {
+        key_axes: dict[str, tuple[int, float]] = {
             "w": (0, 1.0), "s": (0, -1.0),
             "a": (1, 1.0), "d": (1, -1.0),
             "q": (2, 1.0), "e": (2, -1.0),
@@ -189,19 +200,30 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
             if event.get("type") != "keyboard":
                 continue
             name = event.get("name")
-            if name not in key_axes:
+            if name not in key_axes and name != "x":
                 continue
-            if event.get("pressed", False):
-                if name in self._held_motion_keys:
-                    continue
-                self._held_motion_keys.add(name)
-                axis, sign = key_axes[name]
-                target = sign * self.keyboard_command_magnitude
-                self._keyboard_command[axis] = (
-                    0.0 if np.isclose(self._keyboard_command[axis], target) else target
-                )
-            else:
+            if not event.get("pressed", False):
                 self._held_motion_keys.discard(name)
+                continue
+
+            self._held_motion_keys.add(name)
+            next_command = self._keyboard_command.copy()
+            if name == "x":
+                next_command.fill(0.0)
+            else:
+                axis, sign = key_axes[name]
+                next_command[axis] = sign * self.keyboard_command_magnitudes[axis]
+
+            if np.array_equal(next_command, self._keyboard_command):
+                continue
+            self._keyboard_command = next_command
+            logger.info(
+                "[KEYBOARD] key=%s vx=%.3f vy=%.3f yaw=%.3f",
+                name,
+                self._keyboard_command[0],
+                self._keyboard_command[1],
+                self._keyboard_command[2],
+            )
         return self._keyboard_command.copy()
 
     def get_observation(self, env_data, ctrl_data):
