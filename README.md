@@ -282,6 +282,16 @@ Then start the pipeline on the real robot:
 python scripts/run_pipeline.py -c g1_real
 ```
 
+To run the source v022 FADA Planner-IDM checkpoint on the real G1, configure
+the network interface in `g1_real_fada_planner_idm` and use:
+
+```bash
+python scripts/run_pipeline.py -c g1_real_fada_planner_idm
+```
+
+This entry loads the bundled source Planner-IDM checkpoint. Adapted/LoRA
+checkpoints are not supported by this entry.
+
 Your robot should move into default pos. 
 **During the preparation, put your robot on the ground.**
 

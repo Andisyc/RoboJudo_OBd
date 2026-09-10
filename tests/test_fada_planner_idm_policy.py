@@ -9,7 +9,12 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from robojudo.config.g1.g1_cfg import g1_fada_planner_idm, g1_unilab, g1_unilab_distill
+from robojudo.config.g1.g1_cfg import (
+    g1_fada_planner_idm,
+    g1_real_fada_planner_idm,
+    g1_unilab,
+    g1_unilab_distill,
+)
 from robojudo.config.g1.policy.g1_fada_policy_cfg import G1FADAPlannerIDMPolicyCfg
 from robojudo.policy.fada.checkpoint import (
     _canonical_state_dict_sha256,
@@ -71,6 +76,15 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         self.assertEqual(cfg.policy.action_scale, 1.0)
         self.assertEqual(cfg.policy.action_beta, 1.0)
         self.assertIsNone(cfg.policy.action_clip)
+
+        real_cfg = g1_real_fada_planner_idm()
+        self.assertEqual(real_cfg.env.env_type, "UnitreeCppEnv")
+        self.assertEqual(real_cfg.policy.policy_type, "FADAPlannerIDMPolicyAdapter")
+        self.assertEqual(
+            [type(ctrl).__name__ for ctrl in real_cfg.ctrl],
+            ["UnitreeCtrlCfg", "JoystickCtrlCfg"],
+        )
+        self.assertTrue(real_cfg.do_safety_check)
 
     def test_projection_uses_exact_non_leaking_indices(self):
         raw = np.arange(98, dtype=np.float32)[None, :]
@@ -148,6 +162,30 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
             torch.save(payload, checkpoint)
             with self.assertRaisesRegex(ValueError, "IDM identity mismatch"):
                 load_fada_policy_checkpoint(checkpoint)
+
+    def test_real_observation_fallback_and_bundled_checkpoint(self):
+        cfg = G1FADAPlannerIDMPolicyCfg()
+        loaded = load_fada_policy_checkpoint(cfg.policy_file)
+        self.assertEqual(loaded.policy.config.obs_dim, 66)
+        self.assertEqual(loaded.policy.config.action_dim, 29)
+        self.assertEqual(loaded.policy.config.history_length, 30)
+        self.assertEqual(loaded.policy.config.prediction_horizon, 6)
+
+        adapter = FADAPlannerIDMPolicyAdapter(cfg, "cpu")
+        env_data = SimpleNamespace(
+            base_quat=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
+            base_ang_vel=np.asarray([0.1, -0.2, 0.3], dtype=np.float32),
+            dof_pos=np.asarray(adapter.default_dof_pos, dtype=np.float32),
+            dof_vel=np.zeros(29, dtype=np.float32),
+        )
+        obs, _ = adapter.get_observation(env_data, {})
+        action = adapter.get_action(obs)
+
+        np.testing.assert_allclose(obs[:3], [0.025, -0.05, 0.075])
+        np.testing.assert_allclose(obs[3:6], [0.0, 0.0, -1.0])
+        self.assertEqual(obs.shape, (98,))
+        self.assertEqual(action.shape, (29,))
+        self.assertTrue(np.isfinite(action).all())
 
 
 if __name__ == "__main__":

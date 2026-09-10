@@ -151,6 +151,23 @@ class g1_fada_planner_idm(RlPipelineCfg):  # Sim2Sim
 
 
 @cfg_registry.register
+class g1_real_fada_planner_idm(g1_fada_planner_idm):  # Sim2Real
+    """Native FADA Planner-IDM policy on a physical Unitree G1."""
+
+    env: G1RealEnvCfg = G1RealEnvCfg(
+        env_type="UnitreeCppEnv",
+        unitree=G1UnitreeCfg(
+            net_if="eth0",
+        ),
+    )
+    ctrl: List[Union[UnitreeCtrlCfg, JoystickCtrlCfg]] = [
+        UnitreeCtrlCfg(),
+        JoystickCtrlCfg(),
+    ]
+    do_safety_check: bool = True
+
+
+@cfg_registry.register
 class g1_real_unilab(g1_unilab): # Sim2Real
     """
     Unitree G1 robot configuration, UniLab G1WalkFlat Policy.
