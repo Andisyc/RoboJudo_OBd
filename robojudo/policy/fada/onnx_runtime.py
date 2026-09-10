@@ -52,8 +52,14 @@ class FADAOnnxRuntime:
 
         self.device = torch.device(device)
         self.action_dim = int(action_dim)
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = 4
+        session_options.inter_op_num_threads = 1
+        session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         self.session = ort.InferenceSession(
-            path.as_posix(), providers=["CPUExecutionProvider"]
+            path.as_posix(),
+            sess_options=session_options,
+            providers=["CPUExecutionProvider"],
         )
 
         inputs = {entry.name: entry for entry in self.session.get_inputs()}
