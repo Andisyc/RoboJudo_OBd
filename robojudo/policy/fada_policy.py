@@ -6,6 +6,7 @@ from robojudo.policy import policy_registry
 
 from .fada.checkpoint import load_fada_policy_checkpoint
 from .fada.observation import (
+    FADATorsoImuProjector,
     FADA_G1_ACTION_DIM,
     FADA_G1_ACTOR_OBS_DIM,
     FADA_G1_COMMAND_DIM,
@@ -37,6 +38,7 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         self.playback_controller = FADAPlaybackController(
             self._runtime["model"], device=self.device
         )
+        self._torso_imu_projector = FADATorsoImuProjector()
         self._pending_command: np.ndarray | None = None
         self._pending_observation: np.ndarray | None = None
         self.reset()
@@ -83,6 +85,8 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
             self.gait_phase = self.fixed_gait_phase.copy()
         if hasattr(self, "playback_controller"):
             self.playback_controller.reset()
+        if hasattr(self, "_torso_imu_projector"):
+            self._torso_imu_projector.reset()
         self._pending_command = None
         self._pending_observation = None
 
@@ -170,8 +174,14 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         policy_gyro = getattr(env_data, "policy_gyro", None)
         policy_gravity = getattr(env_data, "policy_gravity", None)
         if policy_gyro is None or policy_gravity is None:
-            raise RuntimeError(
-                "FADA Planner-IDM requires policy_gyro and policy_gravity from its environment"
+            torso_imu_state = getattr(env_data, "torso_imu_state", None)
+            if torso_imu_state is None:
+                raise RuntimeError(
+                    "FADA Planner-IDM requires MuJoCo policy IMU observations or "
+                    "Unitree torso_imu_state"
+                )
+            policy_gyro, policy_gravity = self._torso_imu_projector.project(
+                torso_imu_state
             )
         base_ang_vel = np.asarray(policy_gyro, dtype=np.float32)
         gravity = np.asarray(policy_gravity, dtype=np.float32)

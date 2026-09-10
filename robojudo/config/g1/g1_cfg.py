@@ -163,7 +163,7 @@ class g1_real_fada_planner_idm(g1_fada_planner_idm):  # Sim2Real
     """Native FADA Planner-IDM policy on a physical Unitree G1."""
 
     env: G1RealEnvCfg = G1RealEnvCfg(
-        env_type="FADAUnitreeCppEnv",
+        env_type="UnitreeCppEnv",
         odometry_type="NONE",
         unitree=G1UnitreeCfg(
             net_if="eth0",

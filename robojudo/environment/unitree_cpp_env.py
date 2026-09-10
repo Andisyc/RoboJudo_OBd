@@ -24,6 +24,7 @@ class UnitreeCppEnv(Environment):
         self.RemoteControllerHandler = None
 
         cfg_unitree: UnitreeEnvCfg.UnitreeCfg = cfg_env.unitree
+        self._enable_torso_imu = bool(cfg_unitree.enable_torso_imu)
 
         cfg_unitree_dict: dict = cfg_unitree.to_dict()
         cfg_unitree_dict["num_dofs"] = self.num_dofs
@@ -152,6 +153,14 @@ class UnitreeCppEnv(Environment):
         # controller
         if self.RemoteControllerHandler:
             self.RemoteControllerHandler(self.robot_state.wireless_remote)
+
+    def get_data(self):
+        env_data = super().get_data()
+        if self._enable_torso_imu:
+            torso_imu_state = getattr(self.robot_state, "torso_imu_state", None)
+            if torso_imu_state is not None:
+                env_data["torso_imu_state"] = torso_imu_state
+        return env_data
 
     def step(self, pd_target, hand_pose=None):
         assert len(pd_target) == self.num_dofs, "pd_target len should be num_dofs of env"

@@ -11,6 +11,7 @@ class G1FADAPlannerIDMPolicyCfg(G1UniLabPolicyCfg):
 
     policy_type: str = "FADAPlannerIDMPolicyAdapter"
     policy_name: str = "planner_idm_v022"
+    checkpoint_filename: str = "planner_idm_close_some_dr_v001.pt"
     expected_obs_dim: int = 98
     expected_action_dim: int = 29
     history_length: int = 30
@@ -33,5 +34,6 @@ class G1FADAPlannerIDMPolicyCfg(G1UniLabPolicyCfg):
     @property
     def policy_file(self) -> str:
         return (
-            ASSETS_DIR / f"models/{self.robot}/fada/{self.policy_name}/planner_idm.pt"
+            ASSETS_DIR
+            / f"models/{self.robot}/fada/{self.policy_name}/{self.checkpoint_filename}"
         ).as_posix()
