@@ -27,19 +27,6 @@ class PipelineCfg(Config):
     We recommend enabling this, however if motion is very aggressive, you may disable it.
     """
 
-    preflight_only: bool = False
-    """Run bounded state-to-policy checks without preparing or commanding hardware."""
-
-    preflight_steps: int = 50
-    """Number of dry-run control cycles used by a preflight-only configuration."""
-
-    @model_validator(mode="after")
-    def check_preflight_config(self):
-        if self.preflight_only and self.preflight_steps <= 0:
-            raise ValueError("preflight_steps must be positive when preflight_only is enabled")
-        return self
-
-
 class RlPipelineCfg(PipelineCfg):
     pipeline_type: str = "RlPipeline"
 

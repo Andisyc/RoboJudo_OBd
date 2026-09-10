@@ -2,4 +2,4 @@
 set -e
 
 cd "$(dirname "$0")"
-git pull origin main
+git pull origin release

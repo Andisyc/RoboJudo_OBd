@@ -163,32 +163,16 @@ class g1_real_fada_planner_idm(g1_fada_planner_idm):  # Sim2Real
     """Native FADA Planner-IDM policy on a physical Unitree G1."""
 
     env: G1RealEnvCfg = G1RealEnvCfg(
-        env_type="UnitreeCppEnv",
-        policy_imu_source="torso",
+        env_type="FADAUnitreeCppEnv",
+        odometry_type="NONE",
         unitree=G1UnitreeCfg(
             net_if="eth0",
+            enable_odometry=False,
             enable_torso_imu=True,
         ),
     )
     ctrl: List[KeyboardCtrlCfg] = [KeyboardCtrlCfg()]
     do_safety_check: bool = True
-
-
-@cfg_registry.register
-class g1_real_fada_planner_idm_preflight(g1_real_fada_planner_idm):
-    """Read-only FADA Planner-IDM connectivity and inference preflight."""
-
-    env: G1RealEnvCfg = G1RealEnvCfg(
-        act=False,
-        env_type="UnitreeCppEnv",
-        policy_imu_source="torso",
-        unitree=G1UnitreeCfg(
-            net_if="eth0",
-            enable_torso_imu=True,
-        ),
-    )
-    preflight_only: bool = True
-    preflight_steps: int = 50
 
 
 @cfg_registry.register

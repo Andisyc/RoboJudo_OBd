@@ -283,17 +283,7 @@ python scripts/run_pipeline.py -c g1_real
 ```
 
 To run the source v022 FADA Planner-IDM checkpoint on the real G1, configure
-the network interface in `g1_real_fada_planner_idm`. Before enabling hardware
-commands, run the bounded read-only preflight:
-
-```bash
-python scripts/run_pipeline.py -c g1_real_fada_planner_idm_preflight
-```
-
-The preflight reads Unitree state and runs the complete observation and
-Planner-IDM inference path for 50 cycles with `env.act=False`; it never enters
-the motor-position preparation phase. After the preflight passes and the robot
-is physically secured with its emergency stop verified, use:
+the network interface in `g1_real_fada_planner_idm`, then use:
 
 ```bash
 python scripts/run_pipeline.py -c g1_real_fada_planner_idm

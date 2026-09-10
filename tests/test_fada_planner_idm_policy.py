@@ -13,7 +13,7 @@ import torch
 from robojudo.config.g1.g1_cfg import (
     g1_fada_planner_idm,
     g1_real_fada_planner_idm,
-    g1_real_fada_planner_idm_preflight,
+    g1_real_unilab,
     g1_unilab,
     g1_unilab_distill,
 )
@@ -25,7 +25,6 @@ from robojudo.policy.fada.checkpoint import (
 from robojudo.policy.fada.model import FADAArchitectureConfig, FADAPlannerIDMPolicy
 from robojudo.policy.fada.observation import project_fada_g1_state
 from robojudo.policy.fada_policy import FADAPlannerIDMPolicyAdapter
-from robojudo.pipeline.rl_pipeline import RlPipeline
 
 
 class _CheckpointCfg(G1FADAPlannerIDMPolicyCfg):
@@ -81,8 +80,9 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         self.assertIsNone(cfg.policy.action_clip)
 
         real_cfg = g1_real_fada_planner_idm()
-        self.assertEqual(real_cfg.env.env_type, "UnitreeCppEnv")
-        self.assertEqual(real_cfg.env.policy_imu_source, "torso")
+        self.assertEqual(real_cfg.env.env_type, "FADAUnitreeCppEnv")
+        self.assertEqual(real_cfg.env.odometry_type, "NONE")
+        self.assertFalse(real_cfg.env.unitree.enable_odometry)
         self.assertTrue(real_cfg.env.unitree.enable_torso_imu)
         self.assertEqual(real_cfg.env.unitree.torso_imu_topic, "rt/secondary_imu")
         self.assertEqual(real_cfg.policy.policy_type, "FADAPlannerIDMPolicyAdapter")
@@ -92,60 +92,74 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         )
         self.assertTrue(real_cfg.do_safety_check)
 
-        preflight_cfg = g1_real_fada_planner_idm_preflight()
-        self.assertTrue(preflight_cfg.preflight_only)
-        self.assertEqual(preflight_cfg.preflight_steps, 50)
-        self.assertFalse(preflight_cfg.env.act)
-        self.assertFalse(preflight_cfg.env.is_sim)
-        self.assertEqual(preflight_cfg.policy.model_dump(), real_cfg.policy.model_dump())
+        self.assertEqual(g1_real_unilab().env.env_type, "UnitreeCppEnv")
 
-    def test_real_fada_uses_raw_unitree_torso_imu(self):
+    def test_real_fada_torso_imu_matches_sim_tilt_and_aligns_starting_yaw(self):
         fake_unitree_cpp = SimpleNamespace(
             RobotState=object,
             SportState=object,
             UnitreeController=object,
         )
         with mock.patch.dict("sys.modules", {"unitree_cpp": fake_unitree_cpp}):
-            from robojudo.environment.unitree_cpp_env import extract_unitree_policy_imu
-
-        gyro, gravity = extract_unitree_policy_imu(
-            SimpleNamespace(
-                quaternion=[1.0, 0.0, 0.0, 0.0],
-                gyroscope=[0.1, -0.2, 0.3],
+            from robojudo.environment.fada_unitree_cpp_env import (
+                FADATorsoImuProjector,
+                FADAUnitreeCppEnv,
             )
+
+        def quat_mul(lhs, rhs):
+            lw, lx, ly, lz = lhs
+            rw, rx, ry, rz = rhs
+            return np.asarray(
+                [
+                    lw * rw - lx * rx - ly * ry - lz * rz,
+                    lw * rx + lx * rw + ly * rz - lz * ry,
+                    lw * ry - lx * rz + ly * rw + lz * rx,
+                    lw * rz + lx * ry - ly * rx + lz * rw,
+                ]
+            )
+
+        yaw = np.deg2rad(70.0)
+        q_yaw = np.asarray([np.cos(yaw / 2.0), 0.0, 0.0, np.sin(yaw / 2.0)])
+        for tilt_deg in (30.0, -30.0):
+            tilt = np.deg2rad(tilt_deg)
+            sin_tilt = np.sin(tilt)
+            cos_tilt = np.cos(tilt)
+            cases = [
+                (
+                    np.asarray([np.cos(tilt / 2.0), np.sin(tilt / 2.0), 0.0, 0.0]),
+                    [0.0, sin_tilt, -cos_tilt],
+                ),
+                (
+                    np.asarray([np.cos(tilt / 2.0), 0.0, np.sin(tilt / 2.0), 0.0]),
+                    [-sin_tilt, 0.0, -cos_tilt],
+                ),
+            ]
+            for q_tilt, expected_gravity in cases:
+                projector = FADATorsoImuProjector()
+                projector.project(
+                    SimpleNamespace(quaternion=q_yaw, gyroscope=[0.0, 0.0, 0.0])
+                )
+                gyro, gravity = projector.project(
+                    SimpleNamespace(
+                        quaternion=quat_mul(q_yaw, q_tilt),
+                        gyroscope=[0.1, -0.2, 0.3],
+                    )
+                )
+                np.testing.assert_allclose(gyro, [0.1, -0.2, 0.3])
+                np.testing.assert_allclose(gravity, expected_gravity, atol=1e-6)
+
+        with self.assertRaisesRegex(RuntimeError, "quaternion norm"):
+            projector.project(
+                SimpleNamespace(quaternion=[0.0, 0.0, 0.0, 0.0], gyroscope=[0.0, 0.0, 0.0])
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "has not received"):
+            FADAUnitreeCppEnv._check_torso_imu_sample(
+                SimpleNamespace(accelerometer=[0.0, 0.0, 0.0])
+            )
+        FADAUnitreeCppEnv._check_torso_imu_sample(
+            SimpleNamespace(accelerometer=[0.0, 0.0, 9.81])
         )
-        np.testing.assert_allclose(gyro, [0.1, -0.2, 0.3])
-        np.testing.assert_allclose(gravity, [0.0, 0.0, -1.0])
-
-    def test_preflight_runs_dry_cycles_only(self):
-        pipeline = object.__new__(RlPipeline)
-        pipeline.cfg = SimpleNamespace(
-            env=SimpleNamespace(is_sim=False, act=False),
-            preflight_steps=3,
-        )
-        pipeline.env = SimpleNamespace(
-            num_dofs=29,
-            get_data=lambda: SimpleNamespace(
-                dof_pos=np.zeros(29, dtype=np.float32),
-                dof_vel=np.zeros(29, dtype=np.float32),
-                base_quat=np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32),
-                base_ang_vel=np.zeros(3, dtype=np.float32),
-            ),
-        )
-        pipeline.freq = 50
-        pipeline.dt = 0.0
-        dry_run_calls = []
-        pipeline.step = lambda dry_run=False: dry_run_calls.append(dry_run)
-
-        summary = pipeline.run_preflight()
-
-        self.assertEqual(dry_run_calls, [True, True, True])
-        self.assertFalse(summary["hardware_commands_enabled"])
-        self.assertEqual(summary["num_dofs"], 29)
-
-        pipeline.cfg.env.act = True
-        with self.assertRaisesRegex(RuntimeError, "env.act=False"):
-            pipeline.run_preflight(steps=1)
 
     def test_projection_uses_exact_non_leaking_indices(self):
         raw = np.arange(98, dtype=np.float32)[None, :]
@@ -224,7 +238,7 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "IDM identity mismatch"):
                 load_fada_policy_checkpoint(checkpoint)
 
-    def test_real_observation_fallback_and_bundled_checkpoint(self):
+    def test_real_observation_requires_torso_contract_and_bundled_checkpoint(self):
         cfg = G1FADAPlannerIDMPolicyCfg()
         loaded = load_fada_policy_checkpoint(cfg.policy_file)
         self.assertEqual(loaded.policy.config.obs_dim, 66)
@@ -239,8 +253,28 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
             dof_pos=np.asarray(adapter.default_dof_pos, dtype=np.float32),
             dof_vel=np.zeros(29, dtype=np.float32),
         )
+        with self.assertRaisesRegex(RuntimeError, "requires policy_gyro and policy_gravity"):
+            adapter.get_observation(env_data, {})
+
+        env_data.policy_gyro = np.asarray([0.1, -0.2, 0.3], dtype=np.float32)
+        env_data.policy_gravity = np.asarray([0.0, 0.0, -1.0], dtype=np.float32)
         obs, _ = adapter.get_observation(env_data, {})
         action = adapter.get_action(obs)
+
+        snapshot = adapter.snapshot_state()
+        obs_next, _ = adapter.get_observation(env_data, {})
+        adapter.get_action(obs_next)
+        adapter.restore_state(snapshot)
+        restored = adapter.snapshot_state()
+        torch.testing.assert_close(
+            restored["playback"]["observation_history"],  # type: ignore[index]
+            snapshot["playback"]["observation_history"],  # type: ignore[index]
+        )
+        torch.testing.assert_close(
+            restored["playback"]["action_history"],  # type: ignore[index]
+            snapshot["playback"]["action_history"],  # type: ignore[index]
+        )
+        np.testing.assert_array_equal(restored["last_action"], snapshot["last_action"])
 
         np.testing.assert_allclose(obs[:3], [0.025, -0.05, 0.075])
         np.testing.assert_allclose(obs[3:6], [0.0, 0.0, -1.0])

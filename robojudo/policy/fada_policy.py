@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 
 from robojudo.policy import policy_registry
-from robojudo.utils.util_func import get_gravity_orientation
 
 from .fada.checkpoint import load_fada_policy_checkpoint
 from .fada.observation import (
@@ -87,6 +86,45 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         self._pending_command = None
         self._pending_observation = None
 
+    def snapshot_state(self) -> dict[str, object]:
+        state: dict[str, object] = dict(super().snapshot_state())
+        state.update(
+            {
+                "held_motion_keys": set(self._held_motion_keys),
+                "keyboard_command": self._keyboard_command.copy(),
+                "pending_command": (
+                    None if self._pending_command is None else self._pending_command.copy()
+                ),
+                "pending_observation": (
+                    None
+                    if self._pending_observation is None
+                    else self._pending_observation.copy()
+                ),
+                "playback": self.playback_controller.snapshot_state(),
+            }
+        )
+        return state
+
+    def restore_state(self, state: dict[str, object]):
+        super().restore_state(state)  # type: ignore[arg-type]
+        self._held_motion_keys = set(state["held_motion_keys"])  # type: ignore[arg-type]
+        self._keyboard_command = np.asarray(
+            state["keyboard_command"], dtype=np.float32
+        ).copy()
+        pending_command = state.get("pending_command")
+        self._pending_command = (
+            None
+            if pending_command is None
+            else np.asarray(pending_command, dtype=np.float32).copy()
+        )
+        pending_observation = state.get("pending_observation")
+        self._pending_observation = (
+            None
+            if pending_observation is None
+            else np.asarray(pending_observation, dtype=np.float32).copy()
+        )
+        self.playback_controller.restore_state(state["playback"])  # type: ignore[arg-type]
+
     def post_step_callback(self, commands: list[str] | None = None):
         if self.gait_phase_enabled:
             super().post_step_callback(commands)
@@ -130,16 +168,24 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
     def get_observation(self, env_data, ctrl_data):
         commands = self._get_commands(ctrl_data)
         policy_gyro = getattr(env_data, "policy_gyro", None)
-        base_ang_vel = np.asarray(
-            env_data.base_ang_vel if policy_gyro is None else policy_gyro,
-            dtype=np.float32,
-        )
         policy_gravity = getattr(env_data, "policy_gravity", None)
-        gravity = (
-            get_gravity_orientation(env_data.base_quat).astype(np.float32)
-            if policy_gravity is None
-            else np.asarray(policy_gravity, dtype=np.float32)
-        )
+        if policy_gyro is None or policy_gravity is None:
+            raise RuntimeError(
+                "FADA Planner-IDM requires policy_gyro and policy_gravity from its environment"
+            )
+        base_ang_vel = np.asarray(policy_gyro, dtype=np.float32)
+        gravity = np.asarray(policy_gravity, dtype=np.float32)
+        if (
+            base_ang_vel.shape != (3,)
+            or gravity.shape != (3,)
+            or not bool(np.isfinite(base_ang_vel).all() and np.isfinite(gravity).all())
+        ):
+            raise RuntimeError("FADA Planner-IDM policy IMU observation must be finite 3-D vectors")
+        gravity_norm = float(np.linalg.norm(gravity))
+        if not 0.999 <= gravity_norm <= 1.001:
+            raise RuntimeError(
+                f"FADA Planner-IDM policy gravity norm is invalid: {gravity_norm:.6f}"
+            )
         obs = np.concatenate(
             [
                 base_ang_vel * 0.25,

@@ -289,55 +289,6 @@ class RlPipeline(Pipeline):
         if policy_state is not None:
             self.policy.restore_state(policy_state)
 
-    def run_preflight(self, steps: int | None = None):
-        if self.cfg.env.is_sim:
-            raise RuntimeError("hardware preflight requires a non-simulation environment")
-        if getattr(self.cfg.env, "act", True):
-            raise RuntimeError("hardware preflight requires env.act=False")
-
-        total_steps = self.cfg.preflight_steps if steps is None else steps
-        if total_steps <= 0:
-            raise ValueError("preflight steps must be positive")
-
-        elapsed_samples = []
-        for _ in range(total_steps):
-            started = time.perf_counter()
-            self.step(dry_run=True)
-            elapsed = time.perf_counter() - started
-            elapsed_samples.append(elapsed)
-            remaining = self.dt - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
-
-        env_data = self.env.get_data()
-        state_contract = {
-            "dof_pos": (np.asarray(env_data.dof_pos), (self.env.num_dofs,)),
-            "dof_vel": (np.asarray(env_data.dof_vel), (self.env.num_dofs,)),
-            "base_quat": (np.asarray(env_data.base_quat), (4,)),
-            "base_ang_vel": (np.asarray(env_data.base_ang_vel), (3,)),
-        }
-        for name, (value, expected_shape) in state_contract.items():
-            if value.shape != expected_shape or not bool(np.isfinite(value).all()):
-                raise RuntimeError(
-                    f"preflight state {name} must be finite with shape {expected_shape}, got {value.shape}"
-                )
-
-        quat_norm = float(np.linalg.norm(state_contract["base_quat"][0]))
-        if not 0.9 <= quat_norm <= 1.1:
-            raise RuntimeError(f"preflight base quaternion norm is invalid: {quat_norm:.6f}")
-
-        summary = {
-            "steps": total_steps,
-            "num_dofs": self.env.num_dofs,
-            "frequency_hz": self.freq,
-            "max_inference_cycle_ms": max(elapsed_samples) * 1000.0,
-            "mean_inference_cycle_ms": float(np.mean(elapsed_samples)) * 1000.0,
-            "base_quat_norm": quat_norm,
-            "hardware_commands_enabled": False,
-        }
-        logger.info("Hardware preflight passed: %s", summary)
-        return summary
-
     def prepare(self, init_motor_angle=None):
         # get init dof pos from policy
         if init_motor_angle is not None:

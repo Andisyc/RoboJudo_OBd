@@ -20,6 +20,26 @@ class FADAPlaybackController:
         self._observation_history = None
         self._action_history = None
 
+    def snapshot_state(self) -> dict[str, torch.Tensor | None]:
+        return {
+            "observation_history": (
+                None
+                if self._observation_history is None
+                else self._observation_history.detach().clone()
+            ),
+            "action_history": (
+                None if self._action_history is None else self._action_history.detach().clone()
+            ),
+        }
+
+    def restore_state(self, state: dict[str, torch.Tensor | None]) -> None:
+        observation_history = state.get("observation_history")
+        action_history = state.get("action_history")
+        self._observation_history = (
+            None if observation_history is None else observation_history.detach().clone()
+        )
+        self._action_history = None if action_history is None else action_history.detach().clone()
+
     @torch.no_grad()
     def act(self, observation: Any, command: Any) -> torch.Tensor:
         raw = torch.as_tensor(observation, dtype=torch.float32, device=self.device)
@@ -71,4 +91,3 @@ class FADAPlaybackController:
         self._observation_history = torch.cat(
             (self._observation_history[:, 1:], obs.unsqueeze(1)), dim=1
         )
-

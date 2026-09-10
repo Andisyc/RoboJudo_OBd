@@ -102,8 +102,6 @@ class UnitreeEnvCfg(RobotEnvCfg):
 
     joint2motor_idx: list[int] | None = None
     """Mapping from env dof to motor index, None for direct mapping"""
-    policy_imu_source: Literal["base", "torso"] = "base"
-    """IMU source exposed through policy_gyro/policy_gravity when requested."""
     weak_motor: list[int] = []
 
     hand_retarget: None = None  # TODO
@@ -112,6 +110,4 @@ class UnitreeEnvCfg(RobotEnvCfg):
     def check_joint2motor_idx(self):
         if self.joint2motor_idx is not None and len(self.joint2motor_idx) != self.dof.num_dofs:
             raise ValueError("joint2motor_idx length must match dof.num_dofs")
-        if self.policy_imu_source == "torso" and not self.unitree.enable_torso_imu:
-            raise ValueError("policy_imu_source='torso' requires unitree.enable_torso_imu=True")
         return self
