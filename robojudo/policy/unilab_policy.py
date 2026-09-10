@@ -32,14 +32,9 @@ class UniLabPolicy(Policy):
             )
 
         self.gait_frequency = float(cfg_policy.gait_frequency)
-        self.initial_gait_phase = np.asarray(
-            getattr(cfg_policy, "initial_gait_phase", [0.0, np.pi]), dtype=np.float32
-        )
+        self.initial_gait_phase = np.asarray(cfg_policy.initial_gait_phase, dtype=np.float32)
         if self.initial_gait_phase.shape != (2,):
-            raise ValueError(
-                f"UniLabPolicy initial_gait_phase must have shape (2,), "
-                f"got {self.initial_gait_phase.shape}."
-            )
+            raise ValueError("initial_gait_phase must contain the left and right foot phases")
         self.gait_phase = self.initial_gait_phase.copy()
         self.freeze_phase_during_dry_run = bool(
             getattr(cfg_policy, "freeze_phase_during_dry_run", True)

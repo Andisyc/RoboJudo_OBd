@@ -38,7 +38,14 @@ class MujocoEnvCfg(EnvCfg):
     sim_duration: float = 60.0
     sim_dt: float = 0.001
     sim_decimation: int = 20
+<<<<<<< HEAD
     init_qpos: Optional[list[float]] = None
+=======
+    reset_keyframe: int | None = None
+    actuator_control_mode: Literal["torque", "position"] = "torque"
+    policy_gyro_sensor: str | None = None
+    policy_upvector_sensor: str | None = None
+>>>>>>> 209156ea92aef55fec238bebfaee847dbc44c8e4
 
     visualize_extras: bool = True  # TODO: remove
 

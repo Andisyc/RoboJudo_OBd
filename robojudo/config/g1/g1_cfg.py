@@ -27,7 +27,8 @@ from .env.g1_env_cfg import G1UniLabMujocoDoF  # noqa: F401
 from .env.g1_mujuco_env_cfg import (
     G1_12MujocoEnvCfg, 
     G1_23MujocoEnvCfg, 
-    G1MujocoEnvCfg,)  # noqa: F401
+    G1MujocoEnvCfg,
+    G1UniLabMujocoEnvCfg,)  # noqa: F401
 from .env.g1_real_env_cfg import G1RealEnvCfg, G1UnitreeCfg  # noqa: F401
 
 # ======================== Policy Configs ======================== #
@@ -45,14 +46,11 @@ from .policy.g1_twist_policy_cfg import G1TwistPolicyCfg  # noqa: F401
 from .policy.g1_unitree_policy_cfg import (
     G1UnitreePolicyCfg, 
     G1UnitreeWoGaitPolicyCfg,)  # noqa: F401
-from .policy.g1_unilab_policy_cfg import G1UniLabDoF, G1UniLabPolicyCfg  # noqa: F401
-
-
-UNILAB_G1_STAND_ROOT_QPOS: list[float] = [0.0, 0.0, 0.754, 1.0, 0.0, 0.0, 0.0]
-UNILAB_G1_STAND_QPOS: list[float] = [
-    *UNILAB_G1_STAND_ROOT_QPOS,
-    *G1UniLabDoF().default_pos,
-]
+from .policy.g1_unilab_policy_cfg import (  # noqa: F401
+    G1UniLabDistillPolicyCfg,
+    G1UniLabPolicyCfg,
+)
+from .policy.g1_fada_policy_cfg import G1FADAPlannerIDMPolicyCfg  # noqa: F401
 
 
 # ======================== Basic Configs ======================== #
@@ -126,6 +124,30 @@ class g1_unilab(RlPipelineCfg): # Sim2Sim
     ]
 
     policy: G1UniLabPolicyCfg = G1UniLabPolicyCfg()
+
+
+@cfg_registry.register
+class g1_unilab_distill(RlPipelineCfg):  # Sim2Sim
+    """UniLab G1 stand-height/walk DAgger student in MuJoCo."""
+
+    robot: str = "g1"
+    env: G1UniLabMujocoEnvCfg = G1UniLabMujocoEnvCfg()
+
+    ctrl: List[Union[JoystickCtrlCfg, KeyboardCtrlCfg]] = [
+        KeyboardCtrlCfg(),
+    ]
+
+    policy: G1UniLabDistillPolicyCfg = G1UniLabDistillPolicyCfg()
+
+
+@cfg_registry.register
+class g1_fada_planner_idm(RlPipelineCfg):  # Sim2Sim
+    """Native FADA Planner-IDM policy in the UniLab-aligned G1 MuJoCo scene."""
+
+    robot: str = "g1"
+    env: G1UniLabMujocoEnvCfg = G1UniLabMujocoEnvCfg()
+    ctrl: List[Union[JoystickCtrlCfg, KeyboardCtrlCfg]] = [KeyboardCtrlCfg()]
+    policy: G1FADAPlannerIDMPolicyCfg = G1FADAPlannerIDMPolicyCfg()
 
 
 @cfg_registry.register
