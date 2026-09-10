@@ -4,15 +4,27 @@ from typing import Any
 
 import torch
 
-from .model import FADAPlannerIDMPolicy
+from .onnx_runtime import FADAInferenceRuntime
 from .observation import project_fada_observation_tensor
 
 
 class FADAPlaybackController:
-    def __init__(self, policy: FADAPlannerIDMPolicy, *, device: str | torch.device) -> None:
-        self.policy = policy
-        self.config = policy.config
+    def __init__(
+        self,
+        runtime: FADAInferenceRuntime,
+        *,
+        device: str | torch.device,
+        history_length: int,
+        observation_contract: str,
+        action_dim: int,
+        command_dim: int,
+    ) -> None:
+        self.runtime = runtime
         self.device = torch.device(device)
+        self.history_length = int(history_length)
+        self.observation_contract = observation_contract
+        self.action_dim = int(action_dim)
+        self.command_dim = int(command_dim)
         self._observation_history: torch.Tensor | None = None
         self._action_history: torch.Tensor | None = None
 
@@ -46,12 +58,12 @@ class FADAPlaybackController:
         if raw.ndim == 1:
             raw = raw.unsqueeze(0)
         obs = project_fada_observation_tensor(
-            raw, observation_contract=self.config.observation_contract
+            raw, observation_contract=self.observation_contract
         )
         cmd = torch.as_tensor(command, dtype=torch.float32, device=self.device)
         if cmd.ndim == 1:
             cmd = cmd.unsqueeze(0)
-        expected_command_shape = (obs.shape[0], self.config.command_dim)
+        expected_command_shape = (obs.shape[0], self.command_dim)
         if tuple(cmd.shape) != expected_command_shape or not bool(torch.isfinite(cmd).all()):
             raise ValueError(
                 "FADA playback command must be finite with shape "
@@ -60,8 +72,10 @@ class FADAPlaybackController:
         self._advance_observation_history(obs)
         assert self._observation_history is not None
         assert self._action_history is not None
-        action = self.policy(self._observation_history, self._action_history, cmd).action.detach()
-        expected_action_shape = (obs.shape[0], self.config.action_dim)
+        action = self.runtime.infer(
+            self._observation_history, self._action_history, cmd
+        ).detach()
+        expected_action_shape = (obs.shape[0], self.action_dim)
         if tuple(action.shape) != expected_action_shape or not bool(torch.isfinite(action).all()):
             raise ValueError(
                 "FADA playback action must be finite with shape "
@@ -76,12 +90,12 @@ class FADAPlaybackController:
         batch_size = int(obs.shape[0])
         if self._observation_history is None:
             self._observation_history = obs.unsqueeze(1).repeat(
-                1, self.config.history_length, 1
+                1, self.history_length, 1
             )
             self._action_history = torch.zeros(
                 batch_size,
-                self.config.history_length,
-                self.config.action_dim,
+                self.history_length,
+                self.action_dim,
                 device=self.device,
                 dtype=obs.dtype,
             )

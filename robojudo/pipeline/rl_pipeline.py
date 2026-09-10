@@ -257,7 +257,14 @@ class RlPipeline(Pipeline):
                 timestep=self.timestep,)
 
     def step(self, dry_run=False):
-        policy_state = self.policy.snapshot_state() if dry_run and hasattr(self.policy, "snapshot_state") else None
+        preserve_state = bool(
+            getattr(self.policy.cfg_policy, "preserve_state_during_dry_run", True)
+        )
+        policy_state = (
+            self.policy.snapshot_state()
+            if dry_run and preserve_state and hasattr(self.policy, "snapshot_state")
+            else None
+        )
 
         # update [dof, odo, FK, con]
         self.env.update()
@@ -268,7 +275,7 @@ class RlPipeline(Pipeline):
         # get control command
         ctrl_data = self.ctrl_manager.get_ctrl_data(env_data)
         commands = ctrl_data.get("COMMANDS", [])
-        if dry_run:
+        if dry_run and bool(getattr(self.policy, "freeze_phase_during_dry_run", False)):
             commands = list(commands) + ["[UNILAB_FREEZE_PHASE]"]
             ctrl_data["COMMANDS"] = commands
         if len(commands) > 0:

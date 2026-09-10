@@ -11,7 +11,7 @@ class G1FADAPlannerIDMPolicyCfg(G1UniLabPolicyCfg):
 
     policy_type: str = "FADAPlannerIDMPolicyAdapter"
     policy_name: str = "planner_idm_v022"
-    checkpoint_filename: str = "planner_idm_close_some_dr_v001.pt"
+    checkpoint_filename: str = "planner_idm_close_some_dr_v001.onnx"
     expected_obs_dim: int = 98
     expected_action_dim: int = 29
     history_length: int = 30
@@ -19,6 +19,8 @@ class G1FADAPlannerIDMPolicyCfg(G1UniLabPolicyCfg):
     observation_contract: str = "g1_fada_state_v2"
     gait_phase_enabled: bool = False
     fixed_gait_phase: list[float] = [0.0, 0.0]
+    freeze_phase_during_dry_run: bool = False
+    preserve_state_during_dry_run: bool = False
     # FADA's v022 runtime configuration uses [0.4, 0.0, 0.0] as its nominal
     # walking command.  Keep keyboard commands in that trained regime.
     keyboard_command_magnitude: float = 0.4

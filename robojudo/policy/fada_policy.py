@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from robojudo.policy import policy_registry
 
 from .fada.checkpoint import load_fada_policy_checkpoint
+from .fada.onnx_runtime import FADAOnnxRuntime, FADATorchRuntime
 from .fada.observation import (
     FADATorsoImuProjector,
     FADA_G1_ACTION_DIM,
@@ -36,7 +39,12 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         self._held_motion_keys: set[str] = set()
         self._keyboard_command = np.zeros(3, dtype=np.float32)
         self.playback_controller = FADAPlaybackController(
-            self._runtime["model"], device=self.device
+            self._runtime["runner"],
+            device=self.device,
+            history_length=int(cfg_policy.history_length),
+            observation_contract=FADA_G1_STATE_OBSERVATION_CONTRACT,
+            action_dim=FADA_G1_ACTION_DIM,
+            command_dim=FADA_G1_COMMAND_DIM,
         )
         self._torso_imu_projector = FADATorsoImuProjector()
         self._pending_command: np.ndarray | None = None
@@ -44,23 +52,50 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         self.reset()
 
     def _build_runtime(self, policy_file: str):
+        suffix = Path(policy_file).suffix.lower()
+        expected_contract = (
+            FADA_G1_STATE_DIM,
+            FADA_G1_ACTION_DIM,
+            FADA_G1_COMMAND_DIM,
+            int(self.cfg_policy.history_length),
+            int(self.cfg_policy.prediction_horizon),
+            FADA_G1_STATE_OBSERVATION_CONTRACT,
+        )
+        if suffix == ".onnx":
+            runner = FADAOnnxRuntime(
+                policy_file,
+                device=self.device,
+                history_length=int(self.cfg_policy.history_length),
+                observation_dim=FADA_G1_STATE_DIM,
+                action_dim=FADA_G1_ACTION_DIM,
+                command_dim=FADA_G1_COMMAND_DIM,
+            )
+            return {
+                "kind": "fada_planner_idm_onnx",
+                "runner": runner,
+                "contract": expected_contract,
+            }
+        if suffix not in {".pt", ".pth"}:
+            raise ValueError(f"Unsupported FADA Planner-IDM policy format: {policy_file}")
         loaded = load_fada_policy_checkpoint(policy_file, device=self.device)
+        config = loaded.policy.config
         return {
-            "kind": "fada_planner_idm",
+            "kind": "fada_planner_idm_torch",
             "model": loaded.policy,
+            "runner": FADATorchRuntime(loaded.policy),
             "checkpoint": loaded.checkpoint,
+            "contract": (
+                config.obs_dim,
+                config.action_dim,
+                config.command_dim,
+                config.history_length,
+                config.prediction_horizon,
+                config.observation_contract,
+            ),
         }
 
     def _check_runtime_contract(self):
-        config = self._runtime["model"].config
-        observed = (
-            config.obs_dim,
-            config.action_dim,
-            config.command_dim,
-            config.history_length,
-            config.prediction_horizon,
-            config.observation_contract,
-        )
+        observed = self._runtime["contract"]
         expected = (
             FADA_G1_STATE_DIM,
             FADA_G1_ACTION_DIM,

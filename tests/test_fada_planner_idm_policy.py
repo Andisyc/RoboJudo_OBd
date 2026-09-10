@@ -73,6 +73,8 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         self.assertEqual(cfg.policy.prediction_horizon, 6)
         self.assertEqual(cfg.policy.execution_action_scale, 1.0)
         self.assertFalse(cfg.policy.gait_phase_enabled)
+        self.assertFalse(cfg.policy.freeze_phase_during_dry_run)
+        self.assertFalse(cfg.policy.preserve_state_during_dry_run)
         np.testing.assert_allclose(cfg.policy.fixed_gait_phase, [0.0, 0.0])
         self.assertEqual(cfg.policy.action_scale, 1.0)
         self.assertEqual(cfg.policy.action_beta, 1.0)
@@ -87,7 +89,7 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         self.assertTrue(
             real_cfg.policy.policy_file.endswith(
                 "assets/models/g1/fada/planner_idm_v022/"
-                "planner_idm_close_some_dr_v001.pt"
+                "planner_idm_close_some_dr_v001.onnx"
             )
         )
         self.assertEqual(real_cfg.policy.policy_type, "FADAPlannerIDMPolicyAdapter")
