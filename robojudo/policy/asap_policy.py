@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import time
@@ -231,7 +233,8 @@ class AsapLocoPolicy(Policy):
         return np.array([phase_time])
 
     def _get_obs_history(self):
-        history_list = [np.concatenate(items, axis=0) for items in zip(*self.history_buf, strict=True)]
+        # history_list = [np.concatenate(items, axis=0) for items in zip(*self.history_buf, strict=True)]
+        history_list = [np.concatenate(items, axis=0) for items in zip(*self.history_buf)]
         return np.concatenate(history_list, axis=0)
 
     def get_observation(self, env_data, ctrl_data):
@@ -339,43 +342,83 @@ class AsapLocoPolicy(Policy):
                 button_event = ctrl_data[key]["button_event"]
                 for event in button_event:
                     if event["type"] == "button" and event["pressed"]:
-                        name = event["name"]
-                        if name == "Left":
+                        """
+                        match event["name"]:
+                            case "Left":
+                                self.stand_command = 1 - self.stand_command
+                                if self.stand_command == 0:
+                                    self.ang_vel_command[0] = 0.0
+                                    self.lin_vel_command[0] = 0.0
+                                    self.lin_vel_command[1] = 0.0
+                            case "Up":
+                                self.base_height_command[0] += 0.05
+                            case "Down":
+                                self.base_height_command[0] -= 0.05
+                        """
+                        if event["name"] == "Left":
                             self.stand_command = 1 - self.stand_command
                             if self.stand_command == 0:
                                 self.ang_vel_command[0] = 0.0
                                 self.lin_vel_command[0] = 0.0
                                 self.lin_vel_command[1] = 0.0
-                        elif name == "Up":
+                        elif event["name"] == "Up":
                             self.base_height_command[0] += 0.05
-                        elif name == "Down":
+                        elif event["name"] == "Down":
                             self.base_height_command[0] -= 0.05
                 break
             elif key == "KeyboardCtrl":
                 for event in ctrl_data[key]["keyboard_event"]:
                     if event["type"] == "keyboard" and event["pressed"]:
-                        name = event["name"]
-                        if name == "w":
+                        """
+                        match event["name"]:
+                            case "w":
+                                self.lin_vel_command[0] += 0.1 if self.stand_command else 0.0
+                            case "s":
+                                self.lin_vel_command[0] -= 0.1 if self.stand_command else 0.0
+                            case "a":
+                                self.lin_vel_command[1] += 0.1 if self.stand_command else 0.0
+                            case "d":
+                                self.lin_vel_command[1] -= 0.1 if self.stand_command else 0.0
+                            case "q":
+                                self.ang_vel_command[0] -= 0.1
+                            case "e":
+                                self.ang_vel_command[0] += 0.1
+                            case "z":
+                                self.ang_vel_command[0] = 0.0
+                                self.lin_vel_command[0] = 0.0
+                                self.lin_vel_command[1] = 0.0
+                            case "1":
+                                self.base_height_command += 0.05
+                            case "2":
+                                self.base_height_command -= 0.05
+                            case "=":
+                                self.stand_command = 1 - self.stand_command
+                                if self.stand_command == 0:
+                                    self.ang_vel_command[0] = 0.0
+                                    self.lin_vel_command[0] = 0.0
+                                    self.lin_vel_command[1] = 0.0
+                        """
+                        if event["name"] == "w":
                             self.lin_vel_command[0] += 0.1 if self.stand_command else 0.0
-                        elif name == "s":
+                        elif event["name"] == "s":
                             self.lin_vel_command[0] -= 0.1 if self.stand_command else 0.0
-                        elif name == "a":
+                        elif event["name"] ==  "a":
                             self.lin_vel_command[1] += 0.1 if self.stand_command else 0.0
-                        elif name == "d":
+                        elif event["name"] ==  "d":
                             self.lin_vel_command[1] -= 0.1 if self.stand_command else 0.0
-                        elif name == "q":
+                        elif event["name"] ==  "q":
                             self.ang_vel_command[0] -= 0.1
-                        elif name == "e":
+                        elif event["name"] ==  "e":
                             self.ang_vel_command[0] += 0.1
-                        elif name == "z":
+                        elif event["name"] ==  "z":
                             self.ang_vel_command[0] = 0.0
                             self.lin_vel_command[0] = 0.0
                             self.lin_vel_command[1] = 0.0
-                        elif name == "1":
+                        elif event["name"] ==  "1":
                             self.base_height_command += 0.05
-                        elif name == "2":
+                        elif event["name"] ==  "2":
                             self.base_height_command -= 0.05
-                        elif name == "=":
+                        elif event["name"] ==  "=":
                             self.stand_command = 1 - self.stand_command
                             if self.stand_command == 0:
                                 self.ang_vel_command[0] = 0.0

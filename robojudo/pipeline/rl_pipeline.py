@@ -257,6 +257,8 @@ class RlPipeline(Pipeline):
                 timestep=self.timestep,)
 
     def step(self, dry_run=False):
+        policy_state = self.policy.snapshot_state() if dry_run and hasattr(self.policy, "snapshot_state") else None
+
         # update [dof, odo, FK, con]
         self.env.update()
 
@@ -284,6 +286,8 @@ class RlPipeline(Pipeline):
 
         # output callback info to terminal
         self.post_step_callback(env_data, ctrl_data, extras, pd_target)
+        if policy_state is not None:
+            self.policy.restore_state(policy_state)
 
     def prepare(self, init_motor_angle=None):
         # get init dof pos from policy

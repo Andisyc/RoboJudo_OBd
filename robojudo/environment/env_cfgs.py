@@ -38,6 +38,7 @@ class MujocoEnvCfg(EnvCfg):
     sim_duration: float = 60.0
     sim_dt: float = 0.001
     sim_decimation: int = 20
+    init_qpos: Optional[list[float]] = None
 
     visualize_extras: bool = True  # TODO: remove
 

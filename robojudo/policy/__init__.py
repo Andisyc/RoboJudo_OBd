@@ -14,6 +14,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> type[Policy]:
+    print(f"DEBUG: Looking for {name} in registry...")
     try:
         policy_class = policy_registry.get(name)
     except Exception as e:

@@ -95,6 +95,7 @@ class Environment(ABC):
             joint_pos=self.dof_pos,
             base_pos=self.base_pos,
             base_quat=self.base_quat,
+            joint_vel=self.dof_vel,
             base_ang_vel=self.base_ang_vel,
             base_lin_vel=self.base_lin_vel,
         )

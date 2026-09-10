@@ -309,7 +309,7 @@ class RlLocoMimicPipeline(RlMultiPolicyPipeline):
                     logger.warning("Simulation Env reborn!")
                     self.env.reborn()
             elif command.startswith("[POLICY_SWITCH]"):
-                switch_target = cmd.split(",")[1]
+                switch_target = command.split(",")[1]
                 if switch_target == "NEXT":
                     self.policy_manager.toggle_mimic_policy(1)
                 elif switch_target == "LAST":

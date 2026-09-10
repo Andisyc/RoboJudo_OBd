@@ -1,4 +1,4 @@
-from __future__ import annotations
+from typing import Optional
 import logging
 import time
 
@@ -30,6 +30,7 @@ class MujocoEnv(Environment):
         self.model.opt.timestep = self.sim_dt
         self.data = mujoco.MjData(self.model)  # pyright: ignore[reportAttributeAccessIssue]
         # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
+        self._apply_init_qpos()
         mujoco.mj_step(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
         self.viewer = mujoco_viewer.MujocoViewer(
@@ -54,16 +55,43 @@ class MujocoEnv(Environment):
 
         self.update()  # get initial state
 
+    def _apply_init_qpos(self):
+        init_qpos = self.cfg_env.init_qpos
+        if init_qpos is None:
+            return
+        init_qpos = np.asarray(init_qpos, dtype=np.float64)
+        if init_qpos.shape != self.data.qpos.shape:
+            raise ValueError(
+                f"init_qpos shape {init_qpos.shape} != mujoco qpos shape {self.data.qpos.shape}"
+            )
+        self.data.qpos[:] = init_qpos
+        self.data.qvel[:] = 0.0
+        self.data.ctrl[:] = 0.0
+        mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
+
     def reborn(self, init_qpos=None):
         if init_qpos is not None:
-            self.data.qpos[0:7] = init_qpos
+            init_qpos = np.asarray(init_qpos, dtype=np.float64)
+            if init_qpos.shape == self.data.qpos.shape:
+                self.data.qpos[:] = init_qpos
+            elif init_qpos.shape == (7,):
+                self.data.qpos[0:7] = init_qpos
+            else:
+                raise ValueError(
+                    f"init_qpos shape {init_qpos.shape} != (7,) or {self.data.qpos.shape}"
+                )
             self.data.qvel[:] = 0.0
             self.data.ctrl[:] = 0.0
         else:
-            mujoco.mj_resetDataKeyframe(self.model, self.data, 0)  # pyright: ignore[reportAttributeAccessIssue]
+            if self.cfg_env.init_qpos is not None:
+                self._apply_init_qpos()
+            else:
+                mujoco.mj_resetDataKeyframe(self.model, self.data, 0)  # pyright: ignore[reportAttributeAccessIssue]
         mujoco.mj_forward(self.model, self.data)  # pyright: ignore[reportAttributeAccessIssue]
 
     def reset(self):
+        if self.cfg_env.init_qpos is not None:
+            self._apply_init_qpos()
         if self.born_place_align:  # TODO: merge
             self.born_place_align = False  # disable during reset
             self.update()
@@ -79,7 +107,8 @@ class MujocoEnv(Environment):
     def self_check(self):
         pass
 
-    def set_born_place(self, quat: np.ndarray | None = None, pos: np.ndarray | None = None):
+    # def set_born_place(self, quat: np.ndarray | None = None, pos: np.ndarray | None = None):
+    def set_born_place(self, quat: Optional[np.ndarray] = None, pos: Optional[np.ndarray] = None):
         quat_ = self.base_quat if quat is None else quat
         pos_ = self.base_pos if pos is None else pos
         super().set_born_place(quat_, pos_)

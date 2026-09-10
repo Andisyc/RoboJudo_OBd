@@ -70,6 +70,8 @@ class G1UniLabPolicyCfg(PolicyCfg):
     expected_obs_dim: int = 98
     expected_action_dim: int = 29
     gait_frequency: float = 1.5
+    initial_gait_phase: list[float] = [0.0, 3.141592653589793]
+    use_torso_obs_source: bool = True
 
     # Joystick axes are remapped to UniLab's physical command ranges.
     command_maps: list[list[float]] = [

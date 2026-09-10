@@ -81,6 +81,39 @@ class JoystickThread(Thread):
             value = (value - min_val) / (max_val - min_val) * (max_target - min_target) + min_target
         return round(value, 3)
 
+    @staticmethod
+    def _adapt_axis_map(axis_map, axis_range, invert, joystick):
+        num_axes = joystick.get_numaxes()
+        adapted_map = dict(axis_map)
+        adapted_range = dict(axis_range)
+
+        # Common non-Xbox SDL layout: LX, LY, RX, RY with no separate trigger axes.
+        if num_axes in (4, 5):
+            adapted_map.update({"LeftX": 0, "LeftY": 1, "RightX": 2, "RightY": 3})
+            adapted_map.pop("LT", None)
+            adapted_map.pop("RT", None)
+            adapted_range.pop("LT", None)
+            adapted_range.pop("RT", None)
+
+        valid_map = {}
+        dropped = {}
+        for name, index in adapted_map.items():
+            if 0 <= index < num_axes:
+                valid_map[name] = index
+            else:
+                dropped[name] = index
+
+        if dropped:
+            logger.warning(
+                "[Joystick] Dropping unavailable axes %s for device with %s axes",
+                dropped,
+                num_axes,
+            )
+
+        valid_range = {name: rng for name, rng in adapted_range.items() if name in valid_map}
+        valid_invert = {name for name in invert if name in valid_map}
+        return valid_map, valid_range, valid_invert
+
     def run(self):
         import pygame
 
@@ -112,6 +145,7 @@ class JoystickThread(Thread):
         axis_map = axis_config.get("axis_map", {})
         axis_range = axis_config.get("axis_range", {})
         invert = set(axis_config.get("invert", []))
+        axis_map, axis_range, invert = self._adapt_axis_map(axis_map, axis_range, invert, joystick)
 
         clock = pygame.time.Clock()
         last_state_time = time.time()

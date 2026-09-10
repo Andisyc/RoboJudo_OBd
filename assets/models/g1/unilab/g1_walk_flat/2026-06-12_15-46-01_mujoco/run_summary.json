@@ -1,0 +1,22 @@
+{
+  "status": "completed",
+  "completed_iterations": 5000,
+  "total_env_steps": 10262528,
+  "final_mean_reward": 290.55496568946836,
+  "best_mean_reward": 290.55496568946836,
+  "mean_episode_length": 985.3,
+  "last_checkpoint": "/hdd1/cyx/UniLab/logs/fast_sac/G1WalkFlat/2026-06-12_15-46-01_mujoco/model_5000.pt",
+  "trace_path": null,
+  "training_wall_time_sec": 702.6104259490967,
+  "algo": "sac",
+  "task": "G1WalkFlat",
+  "sim_backend": "mujoco",
+  "log_dir": "/hdd1/cyx/UniLab/logs/fast_sac/G1WalkFlat/2026-06-12_15-46-01_mujoco",
+  "start_time_utc": "2026-06-12T07:46:01.972477+00:00",
+  "end_time_utc": "2026-06-12T07:58:44.781523+00:00",
+  "wall_time_sec": 762.8090156218968,
+  "wandb_run_url": null,
+  "configured_seed": 1,
+  "configured_seed_source": "algo.seed",
+  "effective_seed": 1
+}
