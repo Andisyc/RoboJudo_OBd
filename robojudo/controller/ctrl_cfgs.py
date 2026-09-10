@@ -1,4 +1,6 @@
 from __future__ import annotations
+from typing import Literal
+
 from robojudo.config import ASSETS_DIR, Config
 
 
@@ -11,6 +13,9 @@ class CtrlCfg(Config):
 
 class KeyboardCtrlCfg(CtrlCfg):
     ctrl_type: str = "KeyboardCtrl"
+
+    backend: Literal["auto", "pynput", "terminal"] = "auto"
+    """Keyboard input backend. Auto uses the SSH terminal on headless Linux."""
 
     combination_init_buttons: list[str] = ["Key.ctrl_l"]
     """first button in combination, need to be held down to trigger other commands;"""

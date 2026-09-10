@@ -1,9 +1,12 @@
+import atexit
+import os
+import sys
 import time
 from queue import Empty, Queue
+from typing import List, Optional
 
 from robojudo.controller import Controller, ctrl_registry
 from robojudo.controller.ctrl_cfgs import KeyboardCtrlCfg
-from robojudo.controller.utils.keyboard import KeyboardThread
 
 
 @ctrl_registry.register
@@ -14,12 +17,41 @@ class KeyboardCtrl(Controller):
         super().__init__(cfg_ctrl=cfg_ctrl, env=env, **kwargs)
 
         self.event_queue = Queue(maxsize=100)
-        self.keyboard_thread = KeyboardThread(self.event_queue)
-        self.keyboard_thread.start()
+        self.keyboard_input = self._create_keyboard_input(cfg_ctrl.backend)
+        self.keyboard_input.start()
+        atexit.register(self.close)
 
         self.reset()
 
+    @staticmethod
+    def _resolve_backend(backend: str) -> str:
+        if backend != "auto":
+            return backend
+        if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+            return "terminal"
+        return "pynput"
+
+    def _create_keyboard_input(self, backend: str):
+        resolved_backend = self._resolve_backend(backend)
+        if resolved_backend == "terminal":
+            from robojudo.controller.utils.terminal_keyboard import TerminalKeyboardInput
+
+            return TerminalKeyboardInput(self.event_queue)
+        if resolved_backend == "pynput":
+            try:
+                from robojudo.controller.utils.keyboard import KeyboardThread
+            except ImportError as exc:
+                raise RuntimeError(
+                    "KeyboardCtrl could not start the pynput backend; use "
+                    "KeyboardCtrlCfg(backend='terminal') in an SSH terminal"
+                ) from exc
+            return KeyboardThread(self.event_queue)
+        raise ValueError(f"Unknown KeyboardCtrl backend: {resolved_backend}")
+
     def reset(self):
+        reset_input = getattr(self.keyboard_input, "reset", None)
+        if reset_input is not None:
+            reset_input()
         while not self.event_queue.empty():
             try:
                 self.event_queue.get_nowait()
@@ -27,6 +59,9 @@ class KeyboardCtrl(Controller):
                 break
 
     def get_events(self):
+        poll_input = getattr(self.keyboard_input, "poll", None)
+        if poll_input is not None:
+            poll_input()
         events = []
         while not self.event_queue.empty():
             try:
@@ -38,6 +73,16 @@ class KeyboardCtrl(Controller):
 
     def get_data(self):
         return {"keyboard_event": self.get_events()}
+
+    def close(self):
+        close_input = getattr(self, "keyboard_input", None)
+        close = getattr(close_input, "close", None)
+        if close is not None:
+            close()
+
+    def post_step_callback(self, commands: Optional[List[str]] = None):
+        if commands and "[SHUTDOWN]" in commands:
+            self.close()
 
     def process_triggers(self, ctrl_data):
         commands = []
