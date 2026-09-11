@@ -11,7 +11,7 @@ class G1FADAPlannerIDMPolicyCfg(G1UniLabPolicyCfg):
 
     policy_type: str = "FADAPlannerIDMPolicyAdapter"
     policy_name: str = "planner_idm_v022"
-    checkpoint_filename: str = "planner_idm_close_some_dr_v001.onnx"
+    checkpoint_filename: str = "g1_hang_book_real.onnx" # "planner_idm_close_some_dr_v001.onnx"
     expected_obs_dim: int = 98
     expected_action_dim: int = 29
     history_length: int = 30
