@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 MODULE_PATH = Path(__file__).parents[1] / "robojudo/tools/g1_trajectory_recorder.py"
 SPEC = importlib.util.spec_from_file_location("g1_trajectory_recorder_test_target", MODULE_PATH)
@@ -98,6 +99,51 @@ class TestG1TrajectoryRecorder(unittest.TestCase):
         self.assertEqual(records[1]["payload"]["tick"], 123)
         self.assertEqual(len(records[1]["payload"]["motor"]["q"]), 29)
         self.assertEqual(len(records[3]["payload"]["motor"]["q"]), 29)
+
+    def test_armed_recorder_ignores_pretrigger_data_and_names_duration(self):
+        _FakeSubscriber.instances = []
+        bindings = UnitreeSubscriberBindings(
+            initialize=lambda _domain, _net_if: None,
+            subscriber_type=_FakeSubscriber,
+            lowstate_type=object,
+            torso_imu_type=object,
+            lowcmd_type=object,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provisional_path = Path(tmpdir) / "trajectory.msgpack"
+            with mock.patch.object(
+                RECORDER_MODULE,
+                "default_output_path",
+                return_value=provisional_path,
+            ):
+                recorder = G1TrajectoryRecorder(
+                    net_if="test0", bindings=bindings, armed=True
+                )
+
+            callbacks = {
+                subscriber.topic: subscriber.callback
+                for subscriber in _FakeSubscriber.instances
+            }
+            callbacks["rt/lowstate"](_lowstate())
+            self.assertFalse(provisional_path.exists())
+
+            self.assertTrue(recorder.start())
+            callbacks["rt/lowstate"](_lowstate())
+            callbacks["rt/secondary_imu"](_imu())
+            callbacks["rt/lowcmd"](_lowcmd())
+            summary = recorder.close()
+            final_path = recorder.output_path
+            records = list(read_trajectory(final_path))
+
+        self.assertRegex(final_path.name, r"^trajectory_\d+\.\d+s\.msgpack$")
+        self.assertEqual(summary["counts"], {"lowstate": 1, "torso_imu": 1, "lowcmd": 1})
+        self.assertGreaterEqual(summary["duration_seconds"], 0.0)
+        self.assertEqual(records[-1]["kind"], "summary")
+        self.assertEqual(
+            records[-1]["payload"]["duration_seconds"],
+            summary["duration_seconds"],
+        )
 
 
 if __name__ == "__main__":

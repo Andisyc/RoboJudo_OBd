@@ -11,6 +11,8 @@ export CYCLONEDDS_URI="file://$(pwd)/cyclonedds.xml"
 export SDL_JOYSTICK_DEVICE=/dev/input/js0
 
 recorder_pid=""
+trajectory_trigger_dir=""
+trajectory_trigger_file=""
 
 recording_enabled() {
     case "${RECORD_TRAJECTORY}" in
@@ -29,28 +31,46 @@ recording_enabled() {
 
 start_trajectory_recorder() {
     if ! recording_enabled; then
+        unset ROBOJUDO_TRAJECTORY_START_FILE
         echo "Trajectory recording disabled."
         return
     fi
 
-    python scripts/record_g1_trajectory.py --net-if "${UNITREE_NET_IF}" &
+    if ! trajectory_trigger_dir="$(mktemp -d "${TMPDIR:-/tmp}/robojudo-trajectory.XXXXXX")"; then
+        echo "Could not create trajectory recording trigger directory." >&2
+        exit 1
+    fi
+    trajectory_trigger_file="${trajectory_trigger_dir}/start"
+    export ROBOJUDO_TRAJECTORY_START_FILE="${trajectory_trigger_file}"
+
+    python scripts/record_g1_trajectory.py \
+        --net-if "${UNITREE_NET_IF}" \
+        --start-trigger-file "${trajectory_trigger_file}" &
     recorder_pid=$!
-    echo "Trajectory recorder started (pid=${recorder_pid})."
+    echo "Trajectory recorder armed (pid=${recorder_pid})."
 }
 
 stop_trajectory_recorder() {
-    if [[ -z "${recorder_pid}" ]]; then
-        return
+    if [[ -n "${recorder_pid}" ]]; then
+        if kill -0 "${recorder_pid}" 2>/dev/null; then
+            kill -TERM "${recorder_pid}" 2>/dev/null || true
+        fi
+
+        if ! wait "${recorder_pid}"; then
+            echo "Trajectory recorder exited with an error." >&2
+        fi
+        recorder_pid=""
     fi
 
-    if kill -0 "${recorder_pid}" 2>/dev/null; then
-        kill -TERM "${recorder_pid}" 2>/dev/null || true
+    if [[ -n "${trajectory_trigger_file}" ]]; then
+        rm -f -- "${trajectory_trigger_file}"
+        trajectory_trigger_file=""
     fi
-
-    if ! wait "${recorder_pid}"; then
-        echo "Trajectory recorder exited with an error." >&2
+    if [[ -n "${trajectory_trigger_dir}" ]]; then
+        rmdir -- "${trajectory_trigger_dir}" 2>/dev/null || true
+        trajectory_trigger_dir=""
     fi
-    recorder_pid=""
+    unset ROBOJUDO_TRAJECTORY_START_FILE
 }
 
 on_exit() {

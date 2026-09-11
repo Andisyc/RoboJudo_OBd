@@ -80,6 +80,11 @@ def default_output_path() -> Path:
     return Path("logs") / f"g1_trajectory_{timestamp}.msgpack"
 
 
+def duration_output_path(output_path: str | Path, duration_seconds: float) -> Path:
+    path = Path(output_path)
+    return path.with_name(f"{path.stem}_{duration_seconds:.1f}s{path.suffix}")
+
+
 class MsgpackEventWriter:
     _STOP = object()
 
@@ -98,6 +103,7 @@ class MsgpackEventWriter:
         self._dropped = 0
         self._closed = False
         self._error: BaseException | None = None
+        self._final_summary: dict[str, Any] | None = None
         self._thread = threading.Thread(target=self._run, name="g1-trajectory-writer")
         self._thread.start()
         self.record(
@@ -153,15 +159,17 @@ class MsgpackEventWriter:
         if self._dropped:
             raise RuntimeError(f"trajectory writer queue overflowed; dropped={self._dropped}")
 
-    def close(self) -> dict[str, Any]:
+    def close(self, extra_summary: dict[str, Any] | None = None) -> dict[str, Any]:
         if self._closed:
-            return self.summary()
+            return dict(self._final_summary or self.summary())
         summary = self.summary()
+        summary.update(extra_summary or {})
         self.record("summary", summary, count=False)
         self._closed = True
         self._queue.put(self._STOP)
         self._thread.join()
         self.raise_if_failed()
+        self._final_summary = summary
         return summary
 
     def summary(self) -> dict[str, Any]:
@@ -199,15 +207,18 @@ class G1TrajectoryRecorder:
         output_path: str | Path | None = None,
         num_dofs: int = 29,
         bindings: UnitreeSubscriberBindings | None = None,
+        armed: bool = False,
     ):
         if num_dofs <= 0:
             raise ValueError("num_dofs must be positive")
         self.num_dofs = num_dofs
         sdk = bindings or load_unitree_subscriber_bindings()
-        self.writer = MsgpackEventWriter(
-            output_path or default_output_path(),
-            metadata={"net_if": net_if, "num_dofs": num_dofs},
-        )
+        self._output_path = Path(output_path) if output_path is not None else default_output_path()
+        self._append_duration_to_name = output_path is None
+        self._writer_metadata = {"net_if": net_if, "num_dofs": num_dofs}
+        self.writer: MsgpackEventWriter | None = None
+        self._started_monotonic_ns: int | None = None
+        self._summary: dict[str, Any] | None = None
         self._subscribers: list[Any] = []
         self._closed = False
         self._callback_error: BaseException | None = None
@@ -222,48 +233,101 @@ class G1TrajectoryRecorder:
                 subscriber = sdk.subscriber_type(topic, message_type)
                 subscriber.Init(callback, 10)
                 self._subscribers.append(subscriber)
+            if not armed:
+                self.start()
         except BaseException:
-            self.writer.close()
+            if self.writer is not None:
+                self.writer.close()
+            for subscriber in self._subscribers:
+                close = getattr(subscriber, "Close", None)
+                if callable(close):
+                    close()
             raise
 
     @property
     def output_path(self) -> Path:
-        return self.writer.output_path
+        if self.writer is not None:
+            return self.writer.output_path
+        return self._output_path
+
+    @property
+    def has_started(self) -> bool:
+        return self.writer is not None
+
+    def start(self) -> bool:
+        if self._closed:
+            raise RuntimeError("cannot start a closed trajectory recorder")
+        if self.writer is not None:
+            return False
+        writer = MsgpackEventWriter(self._output_path, metadata=self._writer_metadata)
+        self._started_monotonic_ns = time.monotonic_ns()
+        self.writer = writer
+        return True
 
     def _on_lowstate(self, message: Any):
+        writer = self.writer
+        if writer is None:
+            return
         try:
-            self.writer.record("lowstate", serialize_lowstate(message, self.num_dofs))
+            writer.record("lowstate", serialize_lowstate(message, self.num_dofs))
         except BaseException as exc:
             self._callback_error = exc
 
     def _on_torso_imu(self, message: Any):
+        writer = self.writer
+        if writer is None:
+            return
         try:
-            self.writer.record("torso_imu", serialize_torso_imu(message))
+            writer.record("torso_imu", serialize_torso_imu(message))
         except BaseException as exc:
             self._callback_error = exc
 
     def _on_lowcmd(self, message: Any):
+        writer = self.writer
+        if writer is None:
+            return
         try:
-            self.writer.record("lowcmd", serialize_lowcmd(message, self.num_dofs))
+            writer.record("lowcmd", serialize_lowcmd(message, self.num_dofs))
         except BaseException as exc:
             self._callback_error = exc
 
     def raise_if_failed(self):
-        self.writer.raise_if_failed()
+        if self.writer is not None:
+            self.writer.raise_if_failed()
         if self._callback_error is not None:
             raise RuntimeError("trajectory subscriber callback failed") from self._callback_error
 
     def close(self) -> dict[str, Any]:
         if self._closed:
-            return self.writer.summary()
+            return dict(self._summary or {})
         self._closed = True
+        stopped_monotonic_ns = time.monotonic_ns()
         for subscriber in self._subscribers:
             close = getattr(subscriber, "Close", None)
             if callable(close):
                 close()
-        summary = self.writer.close()
+        if self.writer is None or self._started_monotonic_ns is None:
+            self._summary = {
+                "counts": {kind: 0 for kind in DEFAULT_TOPICS},
+                "dropped": 0,
+                "duration_seconds": 0.0,
+            }
+            return dict(self._summary)
+
+        duration_seconds = max(
+            0.0,
+            (stopped_monotonic_ns - self._started_monotonic_ns) / 1_000_000_000,
+        )
+        summary = self.writer.close(
+            extra_summary={"duration_seconds": duration_seconds}
+        )
+        if self._append_duration_to_name:
+            final_path = duration_output_path(self.writer.output_path, duration_seconds)
+            self.writer.output_path.replace(final_path)
+            self.writer.output_path = final_path
+        self._summary = summary
         self.raise_if_failed()
-        return summary
+        return dict(summary)
 
 
 def read_trajectory(path: str | Path) -> Iterator[dict[str, Any]]:

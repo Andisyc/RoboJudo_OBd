@@ -5,6 +5,7 @@ import unittest
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 import torch
@@ -203,6 +204,28 @@ class TestFADAPlannerIDMMigration(unittest.TestCase):
         self.assertEqual(len(captured.records), 3)
         self.assertIn("key=w vx=0.600 vy=0.000 yaw=0.000", captured.output[0])
         self.assertIn("key=x vx=0.000 vy=0.000 yaw=0.000", captured.output[-1])
+
+    def test_trajectory_recording_starts_once_on_positive_forward_command(self):
+        adapter = object.__new__(FADAPlannerIDMPolicyAdapter)
+        adapter._trajectory_recording_requested = False
+
+        with mock.patch(
+            "robojudo.policy.fada_policy.request_trajectory_start"
+        ) as request_start:
+            adapter._maybe_start_trajectory_recording(
+                np.asarray([0.0, 0.4, 0.8], dtype=np.float32)
+            )
+            adapter._maybe_start_trajectory_recording(
+                np.asarray([-0.6, 0.0, 0.0], dtype=np.float32)
+            )
+            adapter._maybe_start_trajectory_recording(
+                np.asarray([0.6, 0.0, 0.0], dtype=np.float32)
+            )
+            adapter._maybe_start_trajectory_recording(
+                np.asarray([0.6, 0.0, 0.0], dtype=np.float32)
+            )
+
+        request_start.assert_called_once_with()
 
     def test_checkpoint_identity_and_stateful_adapter(self):
         with tempfile.TemporaryDirectory() as directory:

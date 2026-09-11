@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import signal
 import threading
+from pathlib import Path
 
 from robojudo.tools.g1_trajectory_recorder import G1TrajectoryRecorder
 
@@ -13,6 +14,10 @@ def parse_args():
     )
     parser.add_argument("--net-if", required=True, help="Network interface used for Unitree DDS")
     parser.add_argument("--output", help="Output .msgpack path; defaults to logs/g1_trajectory_<time>.msgpack")
+    parser.add_argument(
+        "--start-trigger-file",
+        help="Arm immediately, but do not write until this file exists",
+    )
     return parser.parse_args()
 
 
@@ -26,14 +31,29 @@ def main():
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
 
-    recorder = G1TrajectoryRecorder(net_if=args.net_if, output_path=args.output)
-    print(f"Recording G1 trajectory to {recorder.output_path}. Press Ctrl+C to stop.")
+    trigger_path = Path(args.start_trigger_file) if args.start_trigger_file else None
+    recorder = G1TrajectoryRecorder(
+        net_if=args.net_if,
+        output_path=args.output,
+        armed=trigger_path is not None,
+    )
+    if trigger_path is None:
+        print(f"Recording G1 trajectory to {recorder.output_path}. Press Ctrl+C to stop.")
+    else:
+        print("Trajectory recorder armed; waiting for the first forward command.")
     try:
-        while not stop_event.wait(0.25):
+        while not stop_event.wait(0.02 if not recorder.has_started else 0.25):
+            if trigger_path is not None and not recorder.has_started and trigger_path.exists():
+                recorder.start()
+                print(f"Forward command detected; recording to {recorder.output_path}.")
             recorder.raise_if_failed()
     finally:
+        has_recorded = recorder.has_started
         summary = recorder.close()
-    print(f"Trajectory saved: {recorder.output_path} {summary}")
+    if has_recorded:
+        print(f"Trajectory saved: {recorder.output_path} {summary}")
+    else:
+        print("No forward command detected; no trajectory file was created.")
 
 
 if __name__ == "__main__":
