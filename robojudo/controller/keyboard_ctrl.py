@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from robojudo.controller import Controller, ctrl_registry
 from robojudo.controller.ctrl_cfgs import KeyboardCtrlCfg
+from robojudo.tools.trajectory_trigger import request_trajectory_start
 
 
 @ctrl_registry.register
@@ -67,6 +68,12 @@ class KeyboardCtrl(Controller):
             try:
                 event = self.event_queue.get_nowait()
                 events.append(event)
+                if (
+                    event.get("type") == "keyboard"
+                    and event.get("name") == "w"
+                    and event.get("pressed", False)
+                ):
+                    request_trajectory_start()
             except Empty:
                 break
         return events

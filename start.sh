@@ -13,6 +13,7 @@ export SDL_JOYSTICK_DEVICE=/dev/input/js0
 recorder_pid=""
 trajectory_trigger_dir=""
 trajectory_trigger_file=""
+trajectory_ready_file=""
 
 recording_enabled() {
     case "${RECORD_TRAJECTORY}" in
@@ -41,13 +42,35 @@ start_trajectory_recorder() {
         exit 1
     fi
     trajectory_trigger_file="${trajectory_trigger_dir}/start"
+    trajectory_ready_file="${trajectory_trigger_dir}/ready"
     export ROBOJUDO_TRAJECTORY_START_FILE="${trajectory_trigger_file}"
 
     python scripts/record_g1_trajectory.py \
         --net-if "${UNITREE_NET_IF}" \
-        --start-trigger-file "${trajectory_trigger_file}" &
+        --start-trigger-file "${trajectory_trigger_file}" \
+        --ready-file "${trajectory_ready_file}" &
     recorder_pid=$!
-    echo "Trajectory recorder armed (pid=${recorder_pid})."
+    wait_for_trajectory_recorder
+}
+
+wait_for_trajectory_recorder() {
+    local attempt
+    for attempt in {1..100}; do
+        if [[ -e "${trajectory_ready_file}" ]]; then
+            echo "Trajectory recorder armed (pid=${recorder_pid})."
+            return 0
+        fi
+        if ! kill -0 "${recorder_pid}" 2>/dev/null; then
+            wait "${recorder_pid}" 2>/dev/null || true
+            recorder_pid=""
+            echo "Trajectory recorder failed to initialize." >&2
+            return 1
+        fi
+        sleep 0.02
+    done
+
+    echo "Trajectory recorder initialization timed out." >&2
+    return 1
 }
 
 stop_trajectory_recorder() {
@@ -65,6 +88,10 @@ stop_trajectory_recorder() {
     if [[ -n "${trajectory_trigger_file}" ]]; then
         rm -f -- "${trajectory_trigger_file}"
         trajectory_trigger_file=""
+    fi
+    if [[ -n "${trajectory_ready_file}" ]]; then
+        rm -f -- "${trajectory_ready_file}"
+        trajectory_ready_file=""
     fi
     if [[ -n "${trajectory_trigger_dir}" ]]; then
         rmdir -- "${trajectory_trigger_dir}" 2>/dev/null || true
@@ -93,7 +120,9 @@ trap on_exit EXIT
 trap 'handle_signal 130' INT
 trap 'handle_signal 143' TERM
 
-start_trajectory_recorder
+if ! start_trajectory_recorder; then
+    exit 1
+fi
 run_controller
 controller_status=$?
 exit "${controller_status}"

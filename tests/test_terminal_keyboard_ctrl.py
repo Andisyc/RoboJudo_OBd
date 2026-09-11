@@ -80,6 +80,25 @@ class TestTerminalKeyboardCtrl(unittest.TestCase):
             self.assertEqual(KeyboardCtrl._resolve_backend("auto"), "pynput")
         self.assertEqual(KeyboardCtrl._resolve_backend("terminal"), "terminal")
 
+    def test_forward_press_requests_trajectory_recording(self):
+        controller = object.__new__(KeyboardCtrl)
+        controller.event_queue = Queue()
+        controller.keyboard_input = mock.Mock()
+        controller.event_queue.put(
+            {"type": "keyboard", "name": "w", "pressed": True}
+        )
+        controller.event_queue.put(
+            {"type": "keyboard", "name": "w", "pressed": False}
+        )
+
+        with mock.patch(
+            "robojudo.controller.keyboard_ctrl.request_trajectory_start"
+        ) as request_start:
+            events = controller.get_events()
+
+        request_start.assert_called_once_with()
+        self.assertEqual(len(events), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,10 @@ def parse_args():
         "--start-trigger-file",
         help="Arm immediately, but do not write until this file exists",
     )
+    parser.add_argument(
+        "--ready-file",
+        help="Create this file after DDS subscriptions are initialized",
+    )
     return parser.parse_args()
 
 
@@ -37,6 +41,8 @@ def main():
         output_path=args.output,
         armed=trigger_path is not None,
     )
+    if args.ready_file:
+        Path(args.ready_file).touch(exist_ok=True)
     if trigger_path is None:
         print(f"Recording G1 trajectory to {recorder.output_path}. Press Ctrl+C to stop.")
     else:

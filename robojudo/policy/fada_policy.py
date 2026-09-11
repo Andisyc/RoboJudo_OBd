@@ -19,7 +19,6 @@ from .fada.observation import (
 )
 from .fada.playback import FADAPlaybackController
 from .unilab_policy import UniLabPolicy
-from robojudo.tools.trajectory_trigger import request_trajectory_start
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +49,6 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
             )
         self._held_motion_keys: set[str] = set()
         self._keyboard_command = np.zeros(3, dtype=np.float32)
-        self._trajectory_recording_requested = False
         self.playback_controller = FADAPlaybackController(
             self._runtime["runner"],
             device=self.device,
@@ -191,9 +189,7 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
         """
         keyboard_data = ctrl_data.get("KeyboardCtrl")
         if keyboard_data is None:
-            commands = np.asarray(super()._get_commands(ctrl_data), dtype=np.float32)
-            self._maybe_start_trajectory_recording(commands)
-            return commands
+            return super()._get_commands(ctrl_data)
 
         key_axes: dict[str, tuple[int, float]] = {
             "w": (0, 1.0), "s": (0, -1.0),
@@ -228,15 +224,7 @@ class FADAPlannerIDMPolicyAdapter(UniLabPolicy):
                 self._keyboard_command[1],
                 self._keyboard_command[2],
             )
-        commands = self._keyboard_command.copy()
-        self._maybe_start_trajectory_recording(commands)
-        return commands
-
-    def _maybe_start_trajectory_recording(self, commands: np.ndarray):
-        if getattr(self, "_trajectory_recording_requested", False) or float(commands[0]) <= 0.0:
-            return
-        self._trajectory_recording_requested = True
-        request_trajectory_start()
+        return self._keyboard_command.copy()
 
     def get_observation(self, env_data, ctrl_data):
         commands = self._get_commands(ctrl_data)
