@@ -45,7 +45,9 @@ start_trajectory_recorder() {
     trajectory_ready_file="${trajectory_trigger_dir}/ready"
     export ROBOJUDO_TRAJECTORY_START_FILE="${trajectory_trigger_file}"
 
-    python scripts/record_g1_trajectory.py \
+    # The deployed unitree_sdk2py participant works with its automatic DDS
+    # configuration; keep RoboJuDo's CYCLONEDDS_URI only for the controller.
+    env -u CYCLONEDDS_URI python scripts/record_g1_trajectory.py \
         --net-if "${UNITREE_NET_IF}" \
         --start-trigger-file "${trajectory_trigger_file}" \
         --ready-file "${trajectory_ready_file}" &
